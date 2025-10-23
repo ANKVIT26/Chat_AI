@@ -14,21 +14,13 @@ function App() {
     }
     return false;
   });
-  // Gemini API helper for general questions only
-  async function callGemini(question) {
+  // Proxy all queries (weather, news, general) through backend
+  async function callBackend(question) {
     try {
-      const response = await axios({
-        url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${
-          import.meta.env.VITE_API_GENERATIVE_LANGUAGE_CLIENT
-        }`,
-        method: "post",
-        data: {
-          contents: [{ parts: [{ text: question }] }],
-        },
-      });
-      return response.data.candidates[0].content.parts[0].text;
+      const response = await axios.post(`${API_BASE_URL}/chat`, { message: question });
+      return response.data.reply;
     } catch (error) {
-      console.log(error);
+      console.error("Backend error:", error.response?.data || error.message);
       return "Sorry - Something went wrong. Please try again!";
     }
   }
@@ -62,15 +54,8 @@ function App() {
     const isNews = /(news|headline|headlines|article|articles|update|updates|breaking)/i.test(lower);
 
     try {
-      let aiResponse;
-      if (isWeather || isNews) {
-        // Use backend for weather/news
-        const response = await axios.post(`${API_BASE_URL}/chat`, { message: currentQuestion });
-        aiResponse = response.data.reply;
-      } else {
-        // Use Gemini API directly for general questions
-        aiResponse = await callGemini(currentQuestion);
-      }
+      // Always use backend for all queries
+      const aiResponse = await callBackend(currentQuestion);
       setChatHistory(prev => [...prev, { type: 'answer', content: aiResponse }]);
       setAnswer(aiResponse);
     } catch (error) {
