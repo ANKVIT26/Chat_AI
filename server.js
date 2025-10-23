@@ -6,6 +6,7 @@ import axios from 'axios';
 dotenv.config();
 
 const app = express();
+app.use(express.json());
 const PORT = process.env.PORT || 3001;
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
