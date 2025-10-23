@@ -16,11 +16,10 @@ const NEWS_API_KEY = process.env.NEWS_API_KEY;
 const DISABLE_GEMINI = (process.env.DISABLE_GEMINI || 'false').toLowerCase() === 'true';
 
 app.use(express.json());
-// Replace with your actual frontend URL
-const allowedOrigin = 'https://nodemesh-frontend.onrender.com';
-
+const cors = require('cors');
 app.use(cors({
-  origin: allowedOrigin,
+  origin: 'https://nodemesh-frontend.onrender.com', 
+  methods: ['GET', 'POST', 'OPTIONS'],
   credentials: true
 }));
 
@@ -481,4 +480,5 @@ app.get('/healthz', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
+
 
