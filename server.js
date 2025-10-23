@@ -8,20 +8,23 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const WEATHER_API_KEY = process.env.WEATHER_API_KEY;
-const NEWS_API_KEY = process.env.NEWS_API_KEY;
-const DISABLE_GEMINI = (process.env.DISABLE_GEMINI || 'false').toLowerCase() === 'true';
 
-app.use(express.json());
 const cors = require('cors');
+// Global CORS middleware for all routes
 app.use(cors({
-  origin: 'https://nodemesh-frontend.onrender.com', 
+  origin: 'https://nodemesh-frontend.onrender.com',
   methods: ['GET', 'POST', 'OPTIONS'],
   credentials: true
 }));
+// Robust preflight support for all routes
+app.options('*', cors({
+  origin: 'https://nodemesh-frontend.onrender.com',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  credentials: true
+}));
+// ...existing code...
+// Removed any redundant or per-route CORS config
+app.use(express.json());
 
 // Axios instance with sane defaults
 const http = axios.create({
@@ -480,5 +483,3 @@ app.get('/healthz', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
-
-
