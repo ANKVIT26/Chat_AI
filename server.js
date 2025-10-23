@@ -8,24 +8,14 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const DEFAULT_GEMINI_MODEL = 'gemini-1.5-flash';
+const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const WEATHER_API_KEY = process.env.WEATHER_API_KEY;
 const NEWS_API_KEY = process.env.NEWS_API_KEY;
 const DISABLE_GEMINI = (process.env.DISABLE_GEMINI || 'false').toLowerCase() === 'true';
 
-const allowedOrigins = [
-  "https://nodemesh-frontend.onrender.com",
-  "http://localhost:5173"
-];
-
-app.use(cors({
-  origin: allowedOrigins,
-  methods: ["GET", "POST"],
-  credentials: true
-}));
-
+app.use(cors());
 app.use(express.json());
 
 // Axios instance with sane defaults
@@ -485,4 +475,3 @@ app.get('/healthz', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
-
