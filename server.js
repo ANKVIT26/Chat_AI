@@ -8,8 +8,13 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const WEATHER_API_KEY = process.env.WEATHER_API_KEY;
+const NEWS_API_KEY = process.env.NEWS_API_KEY;
+const DISABLE_GEMINI = (process.env.DISABLE_GEMINI || 'false').toLowerCase() === 'true';
 
-const cors = require('cors');
 const allowedOrigins = [
   'https://nodemesh-frontend.onrender.com',
   'http://localhost:5173'
@@ -24,14 +29,6 @@ app.options('*', cors({
   methods: ['GET', 'POST', 'OPTIONS'],
   credentials: true
 }));
-// ...existing code...
-// Removed any redundant or per-route CORS config
-app.use(express.json());
-
-// Axios instance with sane defaults
-const http = axios.create({
-  timeout: 15000,
-});
 
 function extractJson(text) {
   const jsonMatch = text.match(/\{[\s\S]*\}/);
