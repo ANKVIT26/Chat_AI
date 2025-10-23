@@ -10,15 +10,17 @@ const PORT = process.env.PORT || 3001;
 
 
 const cors = require('cors');
-// Global CORS middleware for all routes
+const allowedOrigins = [
+  'https://nodemesh-frontend.onrender.com',
+  'http://localhost:5173'
+];
 app.use(cors({
-  origin: 'https://nodemesh-frontend.onrender.com',
+  origin: allowedOrigins,
   methods: ['GET', 'POST', 'OPTIONS'],
   credentials: true
 }));
-// Robust preflight support for all routes
 app.options('*', cors({
-  origin: 'https://nodemesh-frontend.onrender.com',
+  origin: allowedOrigins,
   methods: ['GET', 'POST', 'OPTIONS'],
   credentials: true
 }));
