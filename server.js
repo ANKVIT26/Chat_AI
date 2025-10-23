@@ -15,8 +15,14 @@ const WEATHER_API_KEY = process.env.WEATHER_API_KEY;
 const NEWS_API_KEY = process.env.NEWS_API_KEY;
 const DISABLE_GEMINI = (process.env.DISABLE_GEMINI || 'false').toLowerCase() === 'true';
 
-app.use(cors());
 app.use(express.json());
+// Replace with your actual frontend URL
+const allowedOrigin = 'https://nodemesh-frontend.onrender.com';
+
+app.use(cors({
+  origin: allowedOrigin,
+  credentials: true
+}));
 
 // Axios instance with sane defaults
 const http = axios.create({
@@ -475,3 +481,4 @@ app.get('/healthz', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
+
