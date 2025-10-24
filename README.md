@@ -48,23 +48,60 @@ Prompt engineering is reflected in how each query is structured and routed, ensu
 | Dev Tools   | Postman, ESLint, dotenv        |
 
 ---
+
+## 📁 Project Structure
+
+```
+NodeMesh_CHATBOT/
+├── backend/          # Node.js backend server
+│   ├── server.js     # Main server file
+│   ├── package.json  # Backend dependencies
+│   └── .env.example  # Example environment variables
+├── frontend/         # React + Vite frontend
+│   ├── src/          # React source files
+│   ├── public/       # Static assets
+│   ├── package.json  # Frontend dependencies
+│   └── vite.config.js
+└── README.md
+```
+
+---
+
 ## Testing the APIs
 Use Postman to test backend endpoints by importing the API sample code/ pasting it in raw format area and request using "POST" with your API Key to verify the working.
 
 ## 🛠️ Setup Instructions
-1. Install dependencies- npm install
-2. Create .env file-
-GEMINI_API_KEY=your_gemini_key
-WEATHER_API_KEY=your_weather_key
-NEWS_API_KEY=your_newsapi_key
 
-3. Start backend Server- npm run server
-4. Start the Frontend- npm run dev
-
-5. Clone the repo:
+1. **Clone the repository:**
    ```bash
-   git clone https://github.com/ANKVIT26/Chat_AI.git
-   cd Chat_AI
+   git clone https://github.com/ANKVIT26/NodeMesh_CHATBOT.git
+   cd NodeMesh_CHATBOT
+   ```
+
+2. **Backend Setup:**
+   ```bash
+   cd backend
+   npm install
+   ```
+   
+   Create a `.env` file in the `backend` folder:
+   ```
+   GEMINI_API_KEY=your_gemini_key
+   WEATHER_API_KEY=your_weather_key
+   NEWS_API_KEY=your_newsapi_key
+   ```
+   
+   Start the backend server:
+   ```bash
+   npm run server
+   ```
+
+3. **Frontend Setup:**
+   ```bash
+   cd ../frontend
+   npm install
+   npm run dev
+   ```
 
 <img width="1919" height="877" alt="image" src="https://github.com/user-attachments/assets/c73c171f-e4ce-4302-99ca-00b094d5e0da" />
 
