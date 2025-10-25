@@ -9,6 +9,7 @@ dotenv.config();
 console.log('--- Checking Environment Variables on STARTUP ---');
 const apiKeyFromEnv = process.env.GEMINI_API_KEY;
 if (apiKeyFromEnv) {
+  // Use local variable to log key parts securely
   console.log(`GEMINI_API_KEY found on startup. Starts with: ${apiKeyFromEnv.substring(0, 5)}, Ends with: ${apiKeyFromEnv.substring(apiKeyFromEnv.length - 4)}`);
 } else {
   console.log('GEMINI_API_KEY is NOT FOUND or empty in process.env on STARTUP!');
@@ -20,9 +21,10 @@ console.log('--- End Startup Check ---');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
+// --- MODEL CONFIGURATION (Updated Default Model) ---
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash'; // Set a modern, stable default
 const GEMINI_MODEL = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // This line still reads it for the rest of the app
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
 const WEATHER_API_KEY = process.env.WEATHER_API_KEY;
 const NEWS_API_KEY = process.env.NEWS_API_KEY;
 const DISABLE_GEMINI = (process.env.DISABLE_GEMINI || 'false').toLowerCase() === 'true';
@@ -70,7 +72,7 @@ const http = axios.create({
 function extractJson(text) {
   if (!text) return null;
   // Regex to capture content inside ```json...``` or a standalone {...}
-  const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```|({[\s\S]*})/);
+  const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```|({[\s\S]*})/); 
   if (!jsonMatch) return null;
   
   // Use captured group 1 (from ```json) or group 2 (from standalone {})
@@ -95,11 +97,14 @@ async function callGemini(prompt, model = GEMINI_MODEL) {
   }
 
   const modelsToTry = [];
+  
   // 1. Primary Model (from env/default)
   if (model) modelsToTry.push(model);
-  // 2. Faster/Stable fallback model
-  if (!modelsToTry.includes('gemini-1.5-flash')) modelsToTry.push('gemini-1.5-flash'); 
-  // 3. General-purpose fallback model (optional, often gemini-1.5-flash is enough)
+  
+  // 2. FIXED FALLBACK: Use gemini-2.5-flash for reliability and speed
+  if (!modelsToTry.includes('gemini-2.5-flash')) modelsToTry.push('gemini-2.5-flash'); 
+  
+  // 3. SECONDARY FALLBACK: Use gemini-pro (reliable text model)
   if (!modelsToTry.includes('gemini-pro')) modelsToTry.push('gemini-pro');
 
   let lastError;
@@ -156,6 +161,7 @@ async function callGemini(prompt, model = GEMINI_MODEL) {
         console.error(`Gemini API error details for ${m} (Status: ${status}):`, JSON.stringify(errorData, null, 2));
       }
 
+      // --- IMPROVED RETRY LOGIC: Retry on temporary failures (503, 429) or network timeouts (ECONNABORTED) ---
       const retriable = status === 429 || status === 500 || status === 503 || error.code === 'ECONNABORTED'; 
       console.warn(`Gemini call failed for model ${m}${status ? ` (Status: ${status})` : ''}${error.code ? ` (Code: ${error.code})` : ''}. ${retriable ? 'Trying next fallback...' : ''}`);
       if (!retriable) break; 
@@ -170,18 +176,24 @@ async function callGemini(prompt, model = GEMINI_MODEL) {
  */
 function fallbackIntentDetection(userMessage) {
     const lower = userMessage.toLowerCase();
-    const weatherKeywords = /(weather|forecast|temperature|rain|snow|storm|climate|alert|alerts|wind)/i;
-    const newsKeywords = /(news|headline|headlines|article|articles|update|updates|breaking)/i;
+    
+    // --- EXPANDED WEATHER KEYWORDS ---
+    const weatherKeywords = /(weather|forecast|temp|temperature|rain|snow|storm|climate|alert|alerts|wind|humidity|sun|cloudy|condition|conditions)/i;
+    // --- END EXPANDED WEATHER KEYWORDS ---
+
+    // --- EXPANDED NEWS KEYWORDS ---
+    const newsKeywords = /(news|headline|headlines|article|articles|update|updates|breaking|latest|today's|report|current|developments)/i;
+    // --- END EXPANDED NEWS KEYWORDS ---
 
     if (weatherKeywords.test(lower)) {
         let location = '';
-        // Look for 'in/for/at LOCATION' or 'weather LOCATION'
-        const locationMatch = userMessage.match(/(?:in|for|at|weather)\s+([A-Z][A-Za-z\s,.'-]+)(?:[\.!,?]|$)/i);
+        // Look for 'in/for/at LOCATION' or 'weather LOCATION' or 'how is LOCATION'
+        const locationMatch = userMessage.match(/(?:in|for|at|weather|how is the|what is the|show me the)\s+([A-Z][A-Za-z\s,.'-]+)(?:[\.!,?]|$)/i);
         if (locationMatch && locationMatch[1]) {
             location = locationMatch[1].trim().replace(/['.]/g, '');
         }
         if (!location) {
-             const cleaned = userMessage.replace(weatherKeywords, '').replace(/\b(?:what is|what's|how is|how's|tell me about|about|the)\b/gi, '').trim();
+             const cleaned = userMessage.replace(weatherKeywords, '').replace(/\b(?:what is|what's|how is|how's|tell me about|about|the|get me the)\b/gi, '').trim();
              if (cleaned && /^[A-Z]/.test(cleaned)) {
                 location = cleaned.replace(/['.]/g, '');
              }
@@ -192,7 +204,7 @@ function fallbackIntentDetection(userMessage) {
     if (newsKeywords.test(lower)) {
         let topic = '';
         // Look for 'about/on TOPIC' or 'news/headlines on/about TOPIC'
-        const topicMatch = userMessage.match(/(?:about|on|regarding|of|news|headlines)\s+([A-Za-z0-9\s,.'-]+)(?:[\.!,?]|$)/i);
+        const topicMatch = userMessage.match(/(?:about|on|regarding|of|news|headlines|latest|updates)\s+([A-Za-z0-9\s,.'-]+)(?:[\.!,?]|$)/i);
         if (topicMatch && topicMatch[1]) {
             topic = topicMatch[1].trim().replace(/['.]/g, '');
         }
@@ -213,7 +225,7 @@ function fallbackIntentDetection(userMessage) {
  * Uses Gemini for robust intent and entity extraction.
  */
 async function detectIntent(userMessage) {
-  // --- IMPROVED PROMPT FOR FASTER AND MORE RELIABLE JSON OUTPUT ---
+  // --- PROMPT OPTIMIZED FOR RELIABILITY AND SPEED ---
   const prompt = `Classify the user message into one intent: "weather", "news", or "general".
 - If intent is "weather", extract the location (city, state, country). Use "" if no clear location.
 - If intent is "news", extract the topic (e.g., "tech", "politics"). Use "" if no clear topic.
@@ -224,11 +236,12 @@ Response strictly in JSON:`;
 
   try {
     if (!DISABLE_GEMINI) {
-        const raw = await callGemini(prompt);
+        // Use the faster model explicitly for this quick task
+        const raw = await callGemini(prompt, 'gemini-2.5-flash'); 
         const parsed = extractJson(raw);
         if (parsed && parsed.intent) {
             return {
-                intent: parsed.intent, 
+                intent: parsed.intent.toLowerCase(), // Normalize the intent output
                 location: parsed.location ?? '',
                 topic: parsed.topic ?? '',
             };
@@ -240,9 +253,9 @@ Response strictly in JSON:`;
     console.error('Gemini intent detection failed, using fallback:', error.message || String(error));
   }
 
-  // Fallback if Gemini is disabled, fails, or returns invalid JSON
   return fallbackIntentDetection(userMessage);
 }
+
 
 /**
  * Handles the weather API call.
@@ -269,35 +282,51 @@ async function handleWeather(location) {
       },
     });
 
-    // Extraction logic (kept mostly the same for stability)
     const loc = weatherData.location;
     const locationName = [loc?.name, loc?.region, loc?.country].filter(Boolean).join(', ') || location;
     
-    // Safety check: ensure current data exists
     const current = weatherData.current;
     if (!current) {
         throw new Error("Weather data unavailable for this location.");
     }
     
-    const timeStr = loc?.localtime ? new Date(loc.localtime.replace(' ', 'T')).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : 'N/A';
+    const localTimeStr = loc?.localtime;
+    let timeInfo = '';
+     if (localTimeStr) {
+         try {
+             const localDate = new Date(localTimeStr.replace(' ', 'T'));
+             const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+             const dayName = dayNames[localDate.getDay()];
+             const dateStr = localDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+             const timeStr = localDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+             timeInfo = `📅 ${dayName}, ${dateStr}\n🕐 Local Time: ${timeStr}\n\n`;
+         } catch (timeError) {
+             console.warn("Could not parse location time:", localTimeStr, timeError);
+         }
+     }
     
-    let response = `**Weather for ${locationName}**\n`;
-    response += `🕐 Local Time: ${timeStr}\n\n`;
-    response += `**Condition:** ${current?.condition?.text ?? 'N/A'}\n`;
-    response += `🌡️ **Temp:** ${current?.temp_c}°C (Feels like: ${current?.feelslike_c}°C)\n`;
-    response += `💧 **Humidity:** ${current?.humidity}%\n`;
-    response += `💨 **Wind:** ${current?.wind_kph} km/h ${current?.wind_dir || ''}`.trim() + '\n';
-    
-    const astro = weatherData.forecast?.forecastday?.[0]?.astro;
-    response += `🌅 **Sunrise:** ${astro?.sunrise || 'N/A'}\n`;
-    response += `🌇 **Sunset:** ${astro?.sunset || 'N/A'}`;
+    const tempText = typeof current?.temp_c === 'number' ? `${current.temp_c}°C` : 'N/A';
+    const feelsLikeText = typeof current?.feelslike_c === 'number' ? `${current.feelslike_c}°C` : 'N/A';
+    const humidityText = typeof current?.humidity === 'number' ? `${current.humidity}%` : 'N/A';
+    const windText = typeof current?.wind_kph === 'number' ? `${current.wind_kph} km/h ${current?.wind_dir || ''}`.trim() : 'N/A';
+    const sunriseText = weatherData.forecast?.forecastday?.[0]?.astro?.sunrise || 'N/A';
+    const sunsetText = weatherData.forecast?.forecastday?.[0]?.astro?.sunset || 'N/A';
 
-    console.log(`Sending weather reply (length: ${response.length})`);
+    let response = `**Weather for ${locationName}**\n`;
+    response += timeInfo;
+    response += `**Condition:** ${current?.condition?.text ?? 'N/A'}\n`;
+    response += `🌡️ **Temp:** ${tempText} (Feels like: ${feelsLikeText})\n`;
+    response += `💧 **Humidity:** ${humidityText}\n`;
+    response += `💨 **Wind:** ${windText}\n`;
+    response += `🌅 **Sunrise:** ${sunriseText}\n`;
+    response += `🌇 **Sunset:** ${sunsetText}`;
+
     return response;
 
   } catch (error) {
     console.error('Weather API error:', error.message);
     if (error.response?.status === 400) {
+      console.warn(`WeatherAPI returned 400 for location: ${location}`, error.response.data);
       return `I couldn't find weather information for "${location}". Please check the spelling or try a larger nearby city.`;
     }
     return 'Sorry, I encountered an issue while trying to retrieve the weather information.';
@@ -433,7 +462,8 @@ User message: "${userMessage}"`;
         throw new Error('Gemini disabled via env');
     }
     console.log('Handling general response with Gemini for:', userMessage);
-    const raw = await callGemini(prompt);
+    // Use the model provided by the environment variable (or default)
+    const raw = await callGemini(prompt); 
     
     // Basic cleanup: trim and remove potential markdown code fences if API wraps response
     const cleaned = raw.trim().replace(/^```[\s\S]*?\n([\s\S]*?)\n```$/, '$1').trim();
@@ -444,6 +474,7 @@ User message: "${userMessage}"`;
     if (!errorMsg.startsWith('Gemini')) { 
         console.error('Gemini general response failed:', errorMsg);
     }
+    // This fallback message is returned to the user when the AI core fails.
     return "I'm currently having trouble connecting to my core AI functions. You could try asking for weather or news, or rephrase your question.";
   }
 }
@@ -482,7 +513,7 @@ app.post('/chat', async (req, res) => {
       return res.status(500).json({ error: 'Server configuration error: AI service key is missing.' });
     }
 
-    // Generic fallback error
+    // Generic fallback error for anything else that crashes the main endpoint thread
     return res.status(500).json({ error: 'Sorry, something went wrong while processing your request.' });
   }
 });
