@@ -178,11 +178,11 @@ function fallbackIntentDetection(userMessage) {
     const lower = userMessage.toLowerCase();
     
     // --- EXPANDED WEATHER KEYWORDS ---
-    const weatherKeywords = /(weather|forecast|temp|temperature|rain|snow|storm|climate|alert|alerts|wind|humidity|sun|cloudy|condition|conditions)/i;
+    const weatherKeywords = /(weather|forecast|temp|temperature|rain|snow|storm|climate|alert|alerts|update|wind|humidity|sun|cloudy|condition|conditions)/i;
     // --- END EXPANDED WEATHER KEYWORDS ---
 
     // --- EXPANDED NEWS KEYWORDS ---
-    const newsKeywords = /(news|headline|headlines|article|articles|update|updates|breaking|latest|today's|report|current|developments)/i;
+    const newsKeywords = /(news|headline|headlines|article|articles|updates|breaking|latest|today's|report|current|developments)/i;
     // --- END EXPANDED NEWS KEYWORDS ---
 
     if (weatherKeywords.test(lower)) {
@@ -452,7 +452,7 @@ async function handleNews(topic, originalMessage) {
  */
 async function handleGeneralResponse(userMessage) {
   // --- IMPROVED PROMPT FOR FASTER AND MORE CONCISE RESPONSE ---
-  const prompt = `You are a helpful and friendly AI assistant named NodeMesh. Answer the user's message concisely and directly. Avoid unnecessary introductory phrases and keep the response under 100 words.
+  const prompt = `You are a helpful and friendly AI assistant named NodeMesh. Answer the user's message concisely and directly. Avoid unnecessary introductory phrases and keep the response under 200 words.
 User message: "${userMessage}"`;
   // -------------------------------------------------------------
   
