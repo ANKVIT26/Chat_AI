@@ -3,6 +3,7 @@ import "./App.css";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 
+// Use the VITE environment variable to get the backend URL
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
 function App() {
@@ -14,27 +15,14 @@ function App() {
     }
     return false;
   });
-  // Gemini API helper for general questions only
-  async function callGemini(question) {
-    try {
-      const response = await axios({
-        url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${
-          import.meta.env.VITE_API_GENERATIVE_LANGUAGE_CLIENT
-        }`,
-        method: "post",
-        data: {
-          contents: [{ parts: [{ text: question }] }],
-        },
-      });
-      return response.data.candidates[0].content.parts[0].text;
-    } catch (error) {
-      console.log(error);
-      return "Sorry - Something went wrong. Please try again!";
-    }
-  }
+
+  // *** REMOVED callGemini FUNCTION ***
+  // It was making a direct, insecure call to the Google API.
+  // All logic is now routed to the secure Express backend.
+
   const [chatHistory, setChatHistory] = useState([]);
   const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
+  const [answer, setAnswer] = useState(""); // This state is now redundant, but kept for minimal change impact
   const [generatingAnswer, setGeneratingAnswer] = useState(false);
 
   const chatContainerRef = useRef(null);
@@ -56,26 +44,23 @@ function App() {
     // Add user question to chat history
     setChatHistory(prev => [...prev, { type: 'question', content: currentQuestion }]);
 
-    // Simple intent detection
-    const lower = currentQuestion.toLowerCase();
-    const isWeather = /(weather|update|forecast|temperature|rain|snow|storm|climate|alert|alerts|wind)/i.test(lower);
-    const isNews = /(news|headline|headlines|article|articles|update|updates|breaking)/i.test(lower);
-
+    // *** FIX APPLIED HERE: Route ALL queries to the backend's /chat endpoint ***
     try {
-      let aiResponse;
-      if (isWeather || isNews) {
-        // Use backend for weather/news
-        const response = await axios.post(`${API_BASE_URL}/chat`, { message: currentQuestion });
-        aiResponse = response.data.reply;
-      } else {
-        // Use Gemini API directly for general questions
-        aiResponse = await callGemini(currentQuestion);
-      }
+      // The backend (server.js) will handle the intent detection (weather, news, or general AI)
+      const response = await axios.post(`${API_BASE_URL}/chat`, { 
+        message: currentQuestion 
+      });
+      
+      const aiResponse = response.data.reply;
+
       setChatHistory(prev => [...prev, { type: 'answer', content: aiResponse }]);
-      setAnswer(aiResponse);
+      setAnswer(aiResponse); // Update the (now redundant) answer state
     } catch (error) {
       console.error("Error:", error.response?.data || error.message);
-      setAnswer("Sorry - Something went wrong. Please try again!");
+      // Ensure a fallback is added to the chat history so the user sees it
+      const errorMessage = "Sorry - Something went wrong. Please try again! (Check backend logs for details)";
+      setChatHistory(prev => [...prev, { type: 'answer', content: errorMessage }]);
+      setAnswer(errorMessage); 
     }
     setGeneratingAnswer(false);
   }
@@ -86,9 +71,9 @@ function App() {
         {/* Fixed Header */}
         <header className="flex items-center justify-between py-4">
           <a href="https://github.com/ANKVIT26" 
-             target="_blank" 
-             rel="noopener noreferrer"
-             className="block">
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="block">
             <h1 className={`text-4xl font-bold transition-colors ${darkMode ? 'text-cyan-300 hover:text-cyan-400' : 'text-blue-500 hover:text-blue-600'}`}>Chat AI</h1>
           </a>
           <button
