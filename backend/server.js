@@ -5,11 +5,11 @@ import axios from 'axios';
 
 dotenv.config();
 
-// --- VERY IMPORTANT DEBUG LOGGING ---
+// --- STARTUP DEBUG LOGGING ---
 console.log('--- Checking Environment Variables on STARTUP ---');
 const apiKeyFromEnv = process.env.GEMINI_API_KEY;
 if (apiKeyFromEnv) {
-  // Use local variable to log key parts securely
+  // Log key parts securely
   console.log(`GEMINI_API_KEY found on startup. Starts with: ${apiKeyFromEnv.substring(0, 5)}, Ends with: ${apiKeyFromEnv.substring(apiKeyFromEnv.length - 4)}`);
 } else {
   console.log('GEMINI_API_KEY is NOT FOUND or empty in process.env on STARTUP!');
@@ -114,6 +114,15 @@ async function callGemini(prompt, model = GEMINI_MODEL) {
     try {
       const response = await http.post(url, {
         contents: [{ parts: [{ text: prompt }] }],
+        
+        // --- ADDED SAFETY SETTINGS TO LOWER THE THRESHOLD FOR BORDERLINE TOPICS ---
+        safetySettings: [
+            { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+            { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+            { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
+            { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
+        ]
+        // --- END: ADDED SAFETY SETTINGS ---
       });
 
       const candidates = response.data?.candidates;
@@ -161,7 +170,7 @@ async function callGemini(prompt, model = GEMINI_MODEL) {
         console.error(`Gemini API error details for ${m} (Status: ${status}):`, JSON.stringify(errorData, null, 2));
       }
 
-      // --- IMPROVED RETRY LOGIC: Retry on temporary failures (503, 429) or network timeouts (ECONNABORTED) ---
+      // Retry logic: Retry on temporary failures (503, 429) or network timeouts (ECONNABORTED)
       const retriable = status === 429 || status === 500 || status === 503 || error.code === 'ECONNABORTED'; 
       console.warn(`Gemini call failed for model ${m}${status ? ` (Status: ${status})` : ''}${error.code ? ` (Code: ${error.code})` : ''}. ${retriable ? 'Trying next fallback...' : ''}`);
       if (!retriable) break; 
@@ -178,11 +187,11 @@ function fallbackIntentDetection(userMessage) {
     const lower = userMessage.toLowerCase();
     
     // --- EXPANDED WEATHER KEYWORDS ---
-    const weatherKeywords = /(weather|forecast|temp|temperature|rain|snow|storm|climate|alert|alerts|update|wind|humidity|sun|cloudy|condition|conditions)/i;
+    const weatherKeywords = /(weather|forecast|temp|temperature|rain|snow|storm|climate|alert|alerts|wind|humidity|sun|cloudy|condition|conditions)/i;
     // --- END EXPANDED WEATHER KEYWORDS ---
 
     // --- EXPANDED NEWS KEYWORDS ---
-    const newsKeywords = /(news|headline|headlines|article|articles|updates|breaking|latest|today's|report|current|developments)/i;
+    const newsKeywords = /(news|headline|headlines|article|articles|update|updates|breaking|latest|today's|report|current|developments)/i;
     // --- END EXPANDED NEWS KEYWORDS ---
 
     if (weatherKeywords.test(lower)) {
@@ -334,7 +343,8 @@ async function handleWeather(location) {
 }
 
 /**
- * Handles the news API call.
+ * Handles news-related requests by first attempting a high-quality summary from Gemini,
+ * and falling back to the NewsAPI if Gemini fails.
  */
 function extractNewsKeywords(text) {
     if (!text) return '';
@@ -353,107 +363,137 @@ function extractNewsKeywords(text) {
 }
 
 async function handleNews(topic, originalMessage) {
-  if (!NEWS_API_KEY) {
-    console.error('Missing NEWS_API_KEY');
-    return 'News service is not configured yet. Please add NEWS_API_KEY.';
-  }
-  
-  const derivedKeywords = extractNewsKeywords(topic || originalMessage);
-  const hasSpecificKeywords = derivedKeywords.length > 0;
+    if (!NEWS_API_KEY) {
+        console.error('Missing NEWS_API_KEY');
+        return 'News service is not configured yet. Please add NEWS_API_KEY.';
+    }
 
-  let endpoint = '[https://newsapi.org/v2/](https://newsapi.org/v2/)';
-  const baseParams = { pageSize: 5, language: 'en' };
-  let params = { ...baseParams };
-  let requestDescription = '';
+    // 1. PRIMARY ATTEMPT: Use Gemini to answer the factual/summary question directly
+    try {
+        const geminiPrompt = `You are a helpful and factual news summarization assistant. 
+        Please provide a concise answer to the following request based on current, verifiable information. 
+        If a specific list or set of facts is requested, provide them directly. Keep the response under 150 words.
+        Request: "${originalMessage}"`;
 
-  if (hasSpecificKeywords) {
-    endpoint += 'everything';
-    params.q = derivedKeywords;
-    params.sortBy = 'relevancy';
-    requestDescription = `about "${derivedKeywords}"`;
-  } else {
-    endpoint += 'top-headlines';
-    params.country = 'us'; 
-    params.category = 'general';
-    requestDescription = 'general US top headlines';
-  }
-
-  function formatArticles(articles, categoryTitle) {
-    if (!articles?.length) return null;
-
-    const articleList = articles.map((article, index) => {
-        const title = article.title ?? 'Untitled Article';
-        const sourceName = article.source?.name ?? 'Unknown Source';
-        const cleanedTitle = title.replace(new RegExp(`\\s+-\\s+${sourceName}$`), '').trim();
-        const published = article.publishedAt
-            ? new Date(article.publishedAt).toLocaleTimeString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
-            : 'Unknown Date';
-        const description = (article.description || article.content || '').replace(/<[^>]+>/g, '').replace(/\[\+\d+\s*chars\]$/, '').trim();
-        const url = article.url ?? '';
-
-        let formatted = `**${index + 1}. ${cleanedTitle}**\n`;
-        formatted += `    📰 _${sourceName}_ • 🕐 ${published}\n`;
-        if (description) {
-            const shortDesc = description.length > 150 ? description.substring(0, 150) + '...' : description;
-            formatted += `    ${shortDesc}\n`;
-        }
-        if (url && url.startsWith('http')) {
-            formatted += `    🔗 [Read more](${url})\n`;
-        }
-        return formatted;
-    }).filter(Boolean);
-
-    return `**📰 ${categoryTitle}**\n\n${articleList.join('\n')}`;
-  }
-
-
-  try {
-    const { data } = await http.get(endpoint, { params, headers: { 'X-Api-Key': NEWS_API_KEY } });
-
-    if (!data.articles?.length) {
-      if (hasSpecificKeywords) {
-        console.log('Retrying NewsAPI /top-headlines with keywords or category...');
-        const fallbackParams = { ...baseParams, country: 'us' };
-        if(derivedKeywords) fallbackParams.q = derivedKeywords;
-        else fallbackParams.category = 'general'; 
-
-        const { data: fbData } = await http.get('[https://newsapi.org/v2/top-headlines](https://newsapi.org/v2/top-headlines)', {
-            params: fallbackParams,
-            headers: { 'X-Api-Key': NEWS_API_KEY }
-        });
-
-        if (!fbData.articles?.length) {
-            return `I couldn't find any recent news articles ${requestDescription}. Try different keywords?`;
-        }
+        console.log(`Attempting Gemini General Answer for News Request: "${originalMessage}"`);
+        // Use gemini-pro for high-quality, reliable factual answering
+        const raw = await callGemini(geminiPrompt, 'gemini-pro'); 
         
-        const fallbackTitle = derivedKeywords ? `Top Headlines matching "${derivedKeywords}"` : "Today's General US Headlines";
-        return formatArticles(fbData.articles, fallbackTitle);
-      }
-      return `I couldn't find any ${requestDescription} right now. Please try again later.`;
+        const cleaned = raw.trim().replace(/^```[\s\S]*?\n([\s\S]*?)\n```$/, '$1').trim();
+
+        // Check if Gemini returned a useful, non-generic answer
+        if (cleaned && !cleaned.toLowerCase().includes("cannot fulfill")) {
+            console.log('Gemini successfully provided a direct answer for the news/fact query.');
+            return cleaned;
+        }
+
+        // If Gemini fails to provide a good answer, fall through to News API search
+        console.warn('Gemini failed to generate a direct answer. Falling back to NewsAPI search...');
+
+    } catch (geminiError) {
+        console.warn(`Gemini failed to answer the news request directly (${geminiError.message}). Falling back to NewsAPI...`);
+        // Continue to NewsAPI logic below
     }
 
-    const categoryTitle = hasSpecificKeywords
-      ? `News about "${derivedKeywords}"`
-      : "Today's General US Headlines";
 
-    return formatArticles(data.articles, categoryTitle);
+    // 2. FALLBACK ATTEMPT: Use NewsAPI search for headlines and articles
+    
+    const preparedTopic = (topic || '').trim();
+    const derivedKeywords = extractNewsKeywords(preparedTopic || originalMessage);
+    const hasSpecificKeywords = derivedKeywords.length > 0;
 
-  } catch (error) {
-    console.error('News API request failed:', error.message);
-    if (error.response?.data?.code === 'rateLimited') {
-        return 'Sorry, I am currently unable to fetch news due to rate limits. Please try again later.';
+    let endpoint = '[https://newsapi.org/v2/](https://newsapi.org/v2/)';
+    const baseParams = { pageSize: 5, language: 'en' };
+    let params = { ...baseParams };
+    let requestDescription = '';
+
+    if (hasSpecificKeywords) {
+        endpoint += 'everything';
+        params.q = derivedKeywords;
+        params.sortBy = 'relevancy';
+        requestDescription = `about "${derivedKeywords}"`;
+    } else {
+        endpoint += 'top-headlines';
+        params.country = 'us'; 
+        params.category = 'general';
+        requestDescription = 'general US top headlines';
     }
-    return 'Sorry, I had trouble fetching the latest news just now. Please try again in a moment.';
-  }
+
+    function formatArticles(articles, categoryTitle) {
+        if (!articles?.length) return null;
+
+        const articleList = articles.map((article, index) => {
+            const title = article.title ?? 'Untitled Article';
+            const sourceName = article.source?.name ?? 'Unknown Source';
+            const cleanedTitle = title.replace(new RegExp(`\\s+-\\s+${sourceName}$`), '').trim();
+            const published = article.publishedAt
+                ? new Date(article.publishedAt).toLocaleTimeString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
+                : 'Unknown Date';
+            const description = (article.description || article.content || '').replace(/<[^>]+>/g, '').replace(/\[\+\d+\s*chars\]$/, '').trim();
+            const url = article.url ?? '';
+
+            let formatted = `**${index + 1}. ${cleanedTitle}**\n`;
+            formatted += `    📰 _${sourceName}_ • 🕐 ${published}\n`;
+            if (description) {
+                const shortDesc = description.length > 150 ? description.substring(0, 150) + '...' : description;
+                formatted += `    ${shortDesc}\n`;
+            }
+            if (url && url.startsWith('http')) {
+                formatted += `    🔗 [Read more](${url})\n`;
+            }
+            return formatted;
+        }).filter(Boolean);
+
+        return `**📰 ${categoryTitle}**\n\n${articleList.join('\n')}`;
+    }
+
+    try {
+        const { data } = await http.get(endpoint, { params, headers: { 'X-Api-Key': NEWS_API_KEY } });
+
+        if (!data.articles?.length) {
+            if (hasSpecificKeywords) {
+                console.log('Retrying NewsAPI /top-headlines with keywords or category...');
+                const fallbackParams = { ...baseParams, country: 'us' };
+                if(derivedKeywords) fallbackParams.q = derivedKeywords;
+                else fallbackParams.category = 'general'; 
+
+                const { data: fbData } = await http.get('[https://newsapi.org/v2/top-headlines](https://newsapi.org/v2/top-headlines)', {
+                    params: fallbackParams,
+                    headers: { 'X-Api-Key': NEWS_API_KEY }
+                });
+
+                if (!fbData.articles?.length) {
+                    return `I couldn't find any recent news articles ${requestDescription}. Try different keywords?`;
+                }
+                
+                const fallbackTitle = derivedKeywords ? `Top Headlines matching "${derivedKeywords}"` : "Today's General US Headlines";
+                return formatArticles(fbData.articles, fallbackTitle);
+            }
+            return `I couldn't find any ${requestDescription} right now. Please try again later.`;
+        }
+
+        const categoryTitle = hasSpecificKeywords
+            ? `News about "${derivedKeywords}"`
+            : "Today's General US Headlines";
+
+        return formatArticles(data.articles, categoryTitle);
+
+    } catch (newsError) {
+        console.error('News API request failed:', newsError.message);
+        if (newsError.response?.data?.code === 'rateLimited') {
+            return 'Sorry, I am currently unable to fetch news due to rate limits. Please try again later.';
+        }
+        return 'Sorry, I had trouble fetching the latest news just now. Please try again in a moment.';
+    }
 }
 
 /**
  * Handles general questions using Gemini.
  */
 async function handleGeneralResponse(userMessage) {
-  // --- IMPROVED PROMPT FOR FASTER AND MORE CONCISE RESPONSE ---
-  const prompt = `You are a helpful and friendly AI assistant named NodeMesh. Answer the user's message concisely and directly. Avoid unnecessary introductory phrases and keep the response under 200 words.
-User message: "${userMessage}"`;
+  // --- IMPROVED PROMPT FOR ESSAY GENERATION (Approx 200 words) ---
+  const prompt = `You are a helpful and friendly AI assistant named NodeMesh. Write a cohesive, well-structured essay of approximately 200 words (about 300 tokens) on the following topic. Do not include any introductory or concluding conversational phrases outside of the essay itself.
+Topic: "${userMessage}"`;
   // -------------------------------------------------------------
   
   try {
@@ -462,6 +502,7 @@ User message: "${userMessage}"`;
         throw new Error('Gemini disabled via env');
     }
     console.log('Handling general response with Gemini for:', userMessage);
+    
     // Use the model provided by the environment variable (or default)
     const raw = await callGemini(prompt); 
     
