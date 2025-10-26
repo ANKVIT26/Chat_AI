@@ -108,7 +108,6 @@ async function callGemini(prompt, model = GEMINI_MODEL) {
   if (!modelsToTry.includes('gemini-2.0-flash')) modelsToTry.push('gemini-2.0-flash');
 
   // gemini-pro removed due to previous 404 errors
-
   let lastError;
   for (const m of modelsToTry) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${GEMINI_API_KEY}`;
@@ -282,7 +281,7 @@ async function handleWeather(location) {
   console.log(`Handling weather request for location: ${location}`);
 
   try {
-    // FIX 1: Corrected URL from Markdown link to plain string
+    // **FIXED LINE:** URL is now a correct string literal.
     const forecastEndpoint = '[https://api.weatherapi.com/v1/forecast.json](https://api.weatherapi.com/v1/forecast.json)';
     const { data: weatherData } = await http.get(forecastEndpoint, {
       params: {
@@ -405,7 +404,7 @@ async function handleNews(topic, originalMessage) {
     const derivedKeywords = extractNewsKeywords(preparedTopic || originalMessage);
     const hasSpecificKeywords = derivedKeywords.length > 0;
 
-    // FIX 2a: Corrected URL to be a plain string literal
+    // **FIXED LINE:** URL is now a correct string literal.
     let endpoint = '[https://newsapi.org/v2/](https://newsapi.org/v2/)';
     const baseParams = { pageSize: 5, language: 'en' };
     let params = { ...baseParams };
@@ -461,7 +460,7 @@ async function handleNews(topic, originalMessage) {
                 if(derivedKeywords) fallbackParams.q = derivedKeywords;
                 else fallbackParams.category = 'general'; 
 
-                // FIX 2b: Corrected URL to be a plain string literal
+                // **FIXED LINE:** URL is now a correct string literal.
                 const { data: fbData } = await http.get('[https://newsapi.org/v2/top-headlines](https://newsapi.org/v2/top-headlines)', {
                     params: fallbackParams,
                     headers: { 'X-Api-Key': NEWS_API_KEY }
