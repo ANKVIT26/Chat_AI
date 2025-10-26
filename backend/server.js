@@ -281,8 +281,7 @@ async function handleWeather(location) {
   console.log(`Handling weather request for location: ${location}`);
 
   try {
-    // **FIXED LINE:** URL is now a correct string literal.
-    const forecastEndpoint = '[https://api.weatherapi.com/v1/forecast.json](https://api.weatherapi.com/v1/forecast.json)';
+    const forecastEndpoint = 'https://api.weatherapi.com/v1/forecast.json';
     const { data: weatherData } = await http.get(forecastEndpoint, {
       params: {
         key: WEATHER_API_KEY,
@@ -404,8 +403,7 @@ async function handleNews(topic, originalMessage) {
     const derivedKeywords = extractNewsKeywords(preparedTopic || originalMessage);
     const hasSpecificKeywords = derivedKeywords.length > 0;
 
-    // **FIXED LINE:** URL is now a correct string literal.
-    let endpoint = '[https://newsapi.org/v2/](https://newsapi.org/v2/)';
+    let endpoint = 'https://newsapi.org/v2/';
     const baseParams = { pageSize: 5, language: 'en' };
     let params = { ...baseParams };
     let requestDescription = '';
@@ -460,8 +458,7 @@ async function handleNews(topic, originalMessage) {
                 if(derivedKeywords) fallbackParams.q = derivedKeywords;
                 else fallbackParams.category = 'general'; 
 
-                // **FIXED LINE:** URL is now a correct string literal.
-                const { data: fbData } = await http.get('[https://newsapi.org/v2/top-headlines](https://newsapi.org/v2/top-headlines)', {
+                const { data: fbData } = await http.get('https://newsapi.org/v2/top-headlines', {
                     params: fallbackParams,
                     headers: { 'X-Api-Key': NEWS_API_KEY }
                 });
