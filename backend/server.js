@@ -101,9 +101,6 @@ async function callGemini(prompt, model = GEMINI_MODEL) {
   // 1. Primary Model (from env/default)
   if (model) modelsToTry.push(model);
   
-  // 2. FIXED FALLBACK: Use gemini-2.5-flash for reliability and speed
-  if (!modelsToTry.includes('gemini-2.5-flash')) modelsToTry.push('gemini-2.5-flash'); 
-  
   // 3. SECONDARY FALLBACK: Use gemini-2.0-flash
   if (!modelsToTry.includes('gemini-2.0-flash')) modelsToTry.push('gemini-2.0-flash');
 
@@ -116,7 +113,6 @@ async function callGemini(prompt, model = GEMINI_MODEL) {
       const response = await http.post(url, {
         contents: [{ parts: [{ text: prompt }] }],
         
-        // --- ADDED SAFETY SETTINGS TO LOWER THE THRESHOLD FOR BORDERLINE TOPICS ---
         safetySettings: [
             { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
             { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
@@ -369,11 +365,10 @@ async function handleNews(topic, originalMessage) {
         return 'News service is not configured yet. Please add NEWS_API_KEY.';
     }
 
-    // 1. PRIMARY ATTEMPT: Use Gemini to answer the factual/summary question directly
     try {
-        const geminiPrompt = `You are a helpful and factual news summarization assistant. 
+        const geminiPrompt = `You are a responsible, helpful and factual news summarization assistant. 
         Please provide a concise answer to the following request based on current, verifiable information. 
-        If a specific list or set of facts is requested, provide them directly. Keep the response under 150 words.
+        If a specific list or set of facts is requested, provide them directly. Keep the response under 250 words.
         Request: "${originalMessage}"`;
 
         console.log(`Attempting Gemini General Answer for News Request: "${originalMessage}"`);
@@ -533,62 +528,153 @@ Analysis:
     return null;
   }
 }
+
+async function getGitaSupport(userMessage) {
+  const prompt = `
+You are a wise and empathetic spiritual guide deeply versed in the Bhagavad Gita. 
+The user is feeling low, tired, or anxious. Find the most relevant Shloka (verse) to soothe their specific state of mind.
+
+Respond STRICTLY in this JSON format:
+{
+  "sanskrit": "The Sanskrit verse in Devanagari",
+  "english_transliteration": "The verse in English letters",
+  "meaning": "A comforting explanation of the verse connecting to the user's situation"
+}
+
+Example 1 (Anxiety/Worry):
+User: "I'm so worried about the results of my exam, I can't sleep."
+Response: {
+  "sanskrit": "कर्मण्येवाधिकारस्ते मा फलेषु कदाचन |",
+  "english_transliteration": "Karmanye vadhikaraste Ma Phaleshu Kadachana",
+  "meaning": "Krishna reminds us in Chapter 2, Verse 47: You have a right to perform your prescribed duties, but you are not entitled to the fruits of your actions. Let go of the anxiety over the result; focus only on doing your best right now."
+}
+
+Example 2 (Mental Exhaustion/Burnout):
+User: "I just feel like giving up. My mind is constantly racing and I'm tired."
+Response: {
+  "sanskrit": "यतो यतो निश्चरति मनश्चञ्चलमस्थिरम् | ततस्ततो नियम्यैतदात्मन्येव वशं नयेत् ||",
+  "english_transliteration": "Yato yato nishcharati manash chanchalam asthiram...",
+  "meaning": "In Chapter 6, Verse 26, we are taught that whenever the restless and unsteady mind wanders, one must bring it back under the control of the Self. It is okay to be tired; gently bring your focus back to the present moment without judgment."
+}
+
+Example 3 (Feeling Low/Depressed):
+User: "I feel really sad and low today, like nothing matters."
+Response: {
+  "sanskrit": "मात्रास्पर्शास्तु कौन्तेय शीतोष्णसुखदुःखदाः | आगमापायिनोऽनित्यास्तांस्तितिक्षस्व भारत ||",
+  "english_transliteration": "Matra-sparshas tu kaunteya shitoshna-sukha-duhkha-dah...",
+  "meaning": "Chapter 2, Verse 14 tells us that happiness and distress are temporary, like the appearance of winter and summer seasons. They arise from sense perception, and one must learn to tolerate them without being disturbed. This heaviness will pass."
+}
+
+---
+User Message: "${userMessage}"
+  `;
+
+  try {
+    if (!DISABLE_GEMINI) {
+       const raw = await callGemini(prompt);
+       return extractJson(raw); 
+    }
+    return null;
+  } catch (error) {
+    console.error("Gita support failed:", error.message);
+    return null;
+  }
+}
+async function analyzeSentiment(userMessage) {
+  const prompt = `
+  Analyze the sentiment of the following message. 
+  Does the user sound "low", "sad", "depressed", "anxious", "tired", or "mentally exhausted"? 
+  Respond with JSON: {"is_low_mood": true/false}
+  
+  Message: "${userMessage}"`;
+
+  try {
+    if (!DISABLE_GEMINI) {
+        const raw = await callGemini(prompt);
+        return extractJson(raw);
+    }
+    return { is_low_mood: false };
+  } catch (error) {
+    return { is_low_mood: false };
+  }
+}
 /**
  * Handles general questions using Gemini.
  */
 async function handleGeneralResponse(userMessage) {
-  // 1. PRE-PROCESSING: Check for sarcasm first
-  let sarcasmAnalysis = null;
-  
-  // Only run analysis if Gemini is enabled
-  if (!DISABLE_GEMINI) { 
-    console.log('Analyzing tone/sarcasm for:', userMessage);
-    sarcasmAnalysis = await analyzeSarcasm(userMessage);
-  }
+  // 1. CONCURRENT ANALYSIS: Run all "meta-checks" in parallel
+  // We use Promise.all to save time. Both checks run simultaneously.
+  let sarcasmResult = null;
+  let sentimentResult = null;
 
-  // 2. CONSTRUCT SYSTEM INSTRUCTION
-  // Start with your base persona
-  let baseInstruction = `You are a helpful and friendly assistant named NodeMesh. Answer the user's message concisely and directly. Avoid unnecessary introductory phrases. If asked about your identity, mention you are NodeMesh, an AI assistant.`;
-
-  // Inject context if sarcasm was detected
-  if (sarcasmAnalysis && sarcasmAnalysis.is_sarcastic) {
-    console.log('Sarcasm detected:', sarcasmAnalysis.intended_meaning);
-    baseInstruction += `
-    \n\n[IMPORTANT CONTEXT]
-    The user's message is SARCASTIC.
-    - Literal meaning: "${sarcasmAnalysis.literal_meaning}"
-    - INTENDED meaning: "${sarcasmAnalysis.intended_meaning}"
+  if (!DISABLE_GEMINI) {
+    console.log('Running concurrent analysis for:', userMessage);
     
-    DO NOT respond to the literal meaning. Respond to the INTENDED meaning. 
-    You may acknowledge the frustration or sarcasm gently, but answer the core intent.`;
+    // Start both tasks independently
+    const sarcasmTask = analyzeSarcasm(userMessage);
+    const sentimentTask = analyzeSentiment(userMessage); // Ensure this function exists from previous steps
+
+    // Wait for both to finish (or fail gracefully)
+    try {
+      [sarcasmResult, sentimentResult] = await Promise.all([sarcasmTask, sentimentTask]);
+    } catch (error) {
+      console.error("One of the analysis tasks failed:", error.message);
+      // Continue execution; we can still generate a response without these insights
+    }
   }
 
-  const prompt = `${baseInstruction}\nUser message: "${userMessage}"`;
+  // 2. CHECK FOR SPECIAL INTERVENTIONS (Gita Support)
+  // If sentiment is low, we might override the standard response entirely
+  if (sentimentResult?.is_low_mood) {
+    console.log("Low mood detected. Attempting to fetch Gita wisdom...");
+    const gitaResponse = await getGitaSupport(userMessage); // Ensure this function exists
+    
+    if (gitaResponse) {
+      // Return the Gita response immediately, bypassing the standard persona
+      return `I sense you might be going through a tough moment. Here is some timeless wisdom from the Bhagavad Gita:\n\n` +
+             `**${gitaResponse.sanskrit}**\n` +
+             `*${gitaResponse.english_transliteration}*\n\n` +
+             `${gitaResponse.meaning}`;
+    }
+  }
+  // 3. CONSTRUCT DYNAMIC SYSTEM INSTRUCTION
+  // Start with your base persona
+  let systemInstruction = `You are a helpful and friendly assistant named NodeMesh. Answer the user's message concisely and directly. Avoid unnecessary introductory phrases. If asked about your identity, mention you are NodeMesh, an AI assistant.`;
 
-  // 3. STANDARD EXECUTION FLOW (Your existing logic)
+  // Inject Sarcasm Context (if detected)
+  if (sarcasmResult?.is_sarcastic) {
+    console.log('Sarcasm detected context added to prompt.');
+    systemInstruction += `
+    \n[IMPORTANT: TONE ANALYSIS]
+    The user's input is SARCASTIC.
+    - Literal Meaning: "${sarcasmResult.literal_meaning}"
+    - INTENDED Meaning: "${sarcasmResult.intended_meaning}"
+    
+    Ignore the literal meaning. Respond directly to the INTENDED meaning.
+    You may acknowledge the sarcasm gently, but ensure you address their actual frustration or intent.`;
+  }
+
+  // 4. FINAL GENERATION
+  const prompt = `${systemInstruction}\nUser message: "${userMessage}"`;
+
   try {
     if (DISABLE_GEMINI) {
-      console.log('Gemini disabled, providing standard fallback for general response.');
       throw new Error('Gemini disabled via env');
     }
 
-    console.log('Handling general response with Gemini...');
+    console.log('Generating final response...');
     const raw = await callGemini(prompt);
-    console.log('Raw Gemini general response:', raw);
-
-    // Basic cleanup: trim and remove potential markdown code fences
     const cleaned = raw.trim().replace(/^```[\s\S]*?\n([\s\S]*?)\n```$/, '$1').trim();
-    return cleaned || "I received an empty response. Could you please rephrase?"; 
+    return cleaned || "I received an empty response. Could you please rephrase?";
 
   } catch (error) {
     const errorMsg = error.message || String(error);
-    if (!errorMsg.startsWith('Gemini')) { 
+    if (!errorMsg.startsWith('Gemini')) {
       console.error('Gemini general response failed:', errorMsg);
     }
-    return "I'm currently having trouble connecting to my core AI functions. You could try asking for weather or news, or rephrase your question.";
+    return "I'm having trouble reaching my AI brain right now. You could try asking for weather or news updates.";
   }
 }
-
 // --- MAIN CHAT ENDPOINT ---
 app.post('/chat', async (req, res) => {
   const { message } = req.body;
