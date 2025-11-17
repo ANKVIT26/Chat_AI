@@ -13,6 +13,7 @@ ChatBot is a responsive AI assistant built using **React + Vite** on the fronten
 
 - **Smart Prompt Engineering**  
   Each API is guided by tailored prompts to ensure clarity, relevance, and structured output. Gemini is used for summarization, reasoning, and fallback logic.
+  This handles the sentiment of the user to answer it rather than assuming it literally, we have incorporated Gita Shlokas to answer distressed and mentally tired queries(used few-shot learning)
 
 - **Frontend**  
   - Built with **React + Vite**
