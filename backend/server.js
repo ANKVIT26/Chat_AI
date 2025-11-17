@@ -487,40 +487,107 @@ async function handleNews(topic, originalMessage) {
         return 'Sorry, I had trouble fetching the latest news just now. Please try again in a moment.';
     }
 }
+async function analyzeSarcasm(userMessage) {
+  // FEW-SHOT PROMPT: We give the model examples (shots) of what we want.
+  const prompt = `
+You are an expert in analyzing text for sarcasm. Respond STRICTLY with a JSON object.
+Analyze the user's message for sarcasm. Identify the literal meaning vs. the intended meaning.
 
+Example 1:
+Message: "Oh, just great. My computer crashed right before my presentation. I'm so thrilled."
+Analysis: {
+  "is_sarcastic": true,
+  "literal_meaning": "The user is thrilled and happy their computer crashed.",
+  "intended_meaning": "The user is very annoyed and upset their computer crashed."
+}
+
+Example 2:
+Message: "I just got a promotion! This is the best day!"
+Analysis: {
+  "is_sarcastic": false,
+  "literal_meaning": "The user is happy about their promotion.",
+  "intended_meaning": "The user is happy about their promotion."
+}
+
+Example 3:
+Message: "You're a real genius."
+Context: (This message was sent after the bot made a simple mistake)
+Analysis: {
+  "is_sarcastic": true,
+  "literal_meaning": "The bot is a genius.",
+  "intended_meaning": "The user thinks the bot made a dumb mistake."
+}
+
+---
+
+Message: "${userMessage}"
+Analysis:
+  `;
+
+  try {
+    // Re-use your existing Gemini caller
+    const raw = await callGemini(prompt); 
+    return extractJson(raw); // Re-use your existing JSON extractor
+  } catch (error) {
+    console.warn("Sarcasm analysis failed (proceeding without it):", error.message);
+    return null;
+  }
+}
 /**
  * Handles general questions using Gemini.
  */
 async function handleGeneralResponse(userMessage) {
-  // --- IMPROVED PROMPT FOR ESSAY GENERATION (Approx 200 words) ---
-  const prompt = `You are a helpful and friendly AI assistant named NodeMesh. Write a cohesive, well-structured essay of approximately 200 words (about 300 tokens) on the following topic. Do not include any introductory or concluding conversational phrases outside of the essay itself.
-Topic: "${userMessage}"`;
-  // -------------------------------------------------------------
-  
-  try {
-    if (DISABLE_GEMINI) {
-        console.log('Gemini disabled, providing standard fallback for general response.');
-        throw new Error('Gemini disabled via env');
-    }
-    console.log('Handling general response with Gemini for:', userMessage);
-    
-    // Use the model provided by the environment variable (or default)
-    const raw = await callGemini(prompt); 
-    
-    // Basic cleanup: trim and remove potential markdown code fences if API wraps response
-    const cleaned = raw.trim().replace(/^```[\s\S]*?\n([\s\S]*?)\n```$/, '$1').trim();
-    return cleaned || "I received an empty response. Could you please rephrase?";
+  // 1. PRE-PROCESSING: Check for sarcasm first
+  let sarcasmAnalysis = null;
+  
+  // Only run analysis if Gemini is enabled
+  if (!DISABLE_GEMINI) { 
+    console.log('Analyzing tone/sarcasm for:', userMessage);
+    sarcasmAnalysis = await analyzeSarcasm(userMessage);
+  }
 
-  } catch (error) {
-    const errorMsg = error.message || String(error);
-    if (!errorMsg.startsWith('Gemini')) { 
-        console.error('Gemini general response failed:', errorMsg);
-    }
-    // This fallback message is returned to the user when the AI core fails.
-    return "I'm currently having trouble connecting to my core AI functions. You could try asking for weather or news, or rephrase your question.";
-  }
+  // 2. CONSTRUCT SYSTEM INSTRUCTION
+  // Start with your base persona
+  let baseInstruction = `You are a helpful and friendly assistant named NodeMesh. Answer the user's message concisely and directly. Avoid unnecessary introductory phrases. If asked about your identity, mention you are NodeMesh, an AI assistant.`;
+
+  // Inject context if sarcasm was detected
+  if (sarcasmAnalysis && sarcasmAnalysis.is_sarcastic) {
+    console.log('Sarcasm detected:', sarcasmAnalysis.intended_meaning);
+    baseInstruction += `
+    \n\n[IMPORTANT CONTEXT]
+    The user's message is SARCASTIC.
+    - Literal meaning: "${sarcasmAnalysis.literal_meaning}"
+    - INTENDED meaning: "${sarcasmAnalysis.intended_meaning}"
+    
+    DO NOT respond to the literal meaning. Respond to the INTENDED meaning. 
+    You may acknowledge the frustration or sarcasm gently, but answer the core intent.`;
+  }
+
+  const prompt = `${baseInstruction}\nUser message: "${userMessage}"`;
+
+  // 3. STANDARD EXECUTION FLOW (Your existing logic)
+  try {
+    if (DISABLE_GEMINI) {
+      console.log('Gemini disabled, providing standard fallback for general response.');
+      throw new Error('Gemini disabled via env');
+    }
+
+    console.log('Handling general response with Gemini...');
+    const raw = await callGemini(prompt);
+    console.log('Raw Gemini general response:', raw);
+
+    // Basic cleanup: trim and remove potential markdown code fences
+    const cleaned = raw.trim().replace(/^```[\s\S]*?\n([\s\S]*?)\n```$/, '$1').trim();
+    return cleaned || "I received an empty response. Could you please rephrase?"; 
+
+  } catch (error) {
+    const errorMsg = error.message || String(error);
+    if (!errorMsg.startsWith('Gemini')) { 
+      console.error('Gemini general response failed:', errorMsg);
+    }
+    return "I'm currently having trouble connecting to my core AI functions. You could try asking for weather or news, or rephrase your question.";
+  }
 }
-
 
 // --- MAIN CHAT ENDPOINT ---
 app.post('/chat', async (req, res) => {
