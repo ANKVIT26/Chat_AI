@@ -5,8 +5,8 @@ import axios from "axios";
 // Ensure these import paths are correct based on where you saved the files.
 // If they are in src/components, use "./components/ChatBubble".
 // If they are in src directly, use "./ChatBubble".
-import ChatBubble from "./components/ChatBubble"; 
-import TypingIndicator from "./components/TypingIndicator";
+import ChatBubble from "./ChatBubble"; 
+import TypingIndicator from "./TypingIndicator";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
