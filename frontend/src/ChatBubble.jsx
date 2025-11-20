@@ -20,7 +20,7 @@ export default function ChatBubble({ message, isUser }) {
     setIsTyping(true);
 
     let i = 0;
-    const typingSpeed = 100; 
+    const typingSpeed = 10; 
     
     const intervalId = setInterval(() => {
       const charToAdd=message.charAt(i);
