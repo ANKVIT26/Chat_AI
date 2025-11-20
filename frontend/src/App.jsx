@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import "./App.css";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
+import TypingIndicator from "./TypingIndicator";
 
 // Use the VITE environment variable to get the backend URL
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
