@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import "./App.css";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
+import ChatBubble from "./ChatBubble";
 import TypingIndicator from "./TypingIndicator";
 
 // Use the VITE environment variable to get the backend URL
