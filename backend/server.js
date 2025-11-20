@@ -18,6 +18,10 @@ console.log('--- End Startup Check ---');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// --- MEMORY STORAGE (The Fix) ---
+// This variable will remember the location across requests
+let lastContextLocation = null; 
+
 // Model Config
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'; 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
@@ -47,6 +51,8 @@ app.use(cors({
 
 app.use(express.json());
 const http = axios.create({ timeout: 15000 });
+
+// --- 2. CORE HELPERS ---
 
 function extractJson(text) {
   if (!text) return null;
@@ -107,10 +113,11 @@ function fallbackIntentDetection(userMessage) {
 }
 
 async function detectIntent(userMessage) {
+  // UPDATE: Asked Gemini to ALWAYS extract location if present, regardless of intent
   const prompt = `Classify the user message into: "weather", "news", or "general".
-- If "weather" (or asking about outdoor activities like fishing/surfing/walking), extract:
-    - "location" (Default ambiguous cities like 'Delhi' to 'Delhi, India')
-    - "activity" (e.g., 'fishing', 'surfing'). If none, use "".
+- Extract "location" if ANY city or country is mentioned in the message, regardless of the intent.
+    (Default ambiguous cities like 'Delhi' to 'Delhi, India').
+- If user asks about outdoor activities (fishing/surfing/walking/stroll), set intent to "weather" and extract "activity".
 - If "news", extract "topic".
 - Respond ONLY with JSON: {"intent": "...", "location": "...", "topic": "...", "activity": "..."}
 User: "${userMessage}"`;
@@ -164,7 +171,7 @@ async function getGitaSupport(userMessage) {
 async function handleWeather(location, activity) {
   if (!WEATHER_API_KEY) return 'Weather service is not configured.';
   
-  // 1. SANITIZE LOCATION (Fix for [object Object])
+  // Sanitize Location
   let queryLocation = location;
   if (typeof location === 'object' && location !== null) {
     queryLocation = location.city || location.name || location.location || JSON.stringify(location);
@@ -181,9 +188,8 @@ async function handleWeather(location, activity) {
 
     const c = data.current;
     const loc = data.location;
-    const astro = data.forecast?.forecastday?.[0]?.astro; // Fetch Astronomy data
+    const astro = data.forecast?.forecastday?.[0]?.astro;
 
-    // 2. PARSE TIME & DATE (Restored Feature)
     let timeInfo = '';
     if (loc.localtime) {
         const localDate = new Date(loc.localtime);
@@ -194,7 +200,6 @@ async function handleWeather(location, activity) {
         timeInfo = `📅 ${dayName}, ${dateStr} 🕐 Local Time: ${timeStr}\n`;
     }
 
-    // 3. BUILD FULL REPORT 
     let response = `**Weather for ${loc.name}, ${loc.region}, ${loc.country}**\n${timeInfo}` +
                    `**Condition:** ${c.condition.text}\n` +
                    `🌡️ **Temp:** ${c.temp_c}°C (Feels like: ${c.feelslike_c}°C)\n` +
@@ -202,7 +207,6 @@ async function handleWeather(location, activity) {
                    `💨 **Wind:** ${c.wind_kph} km/h ${c.wind_dir}\n` +
                    `🌅 **Sunrise:** ${astro?.sunrise || 'N/A'} | 🌇 **Sunset:** ${astro?.sunset || 'N/A'}`;
 
-    // 4. ACTIVITY ADVICE (Gemini)
     if (activity) {
         const advicePrompt = `
         User wants to know if it's good for: "${activity}".
@@ -223,7 +227,6 @@ async function handleWeather(location, activity) {
   }
 }
 
-// News Handler with Gemini Summary First
 function extractNewsKeywords(text) {
     if (!text) return '';
     const blacklist = ['news','headline','latest','about','on','for','update'];
@@ -233,14 +236,12 @@ function extractNewsKeywords(text) {
 async function handleNews(topic, originalMessage) {
     if (!NEWS_API_KEY) return 'News service is not configured.';
 
-    // 1. Try Gemini Summary First
     try {
         const prompt = `Summarize the latest news request: "${originalMessage}". If specific facts, list them. Under 200 words.`;
         const raw = await callGemini(prompt);
         if (raw && !raw.includes("cannot fulfill")) return raw; 
     } catch (e) { console.warn("Gemini news summary failed, using API fallback."); }
 
-    // 2. API Fallback
     const keywords = extractNewsKeywords(topic || originalMessage);
     try {
         const { data } = await http.get('https://newsapi.org/v2/top-headlines', {
@@ -258,9 +259,7 @@ async function handleNews(topic, originalMessage) {
     } catch (e) { return "Sorry, I couldn't fetch the news right now."; }
 }
 
-// General Handler with Hybrid Sentiment Check (THE FAILSAFE)
 async function handleGeneralResponse(userMessage) {
-  // 1. LOCAL KEYWORD CHECK (The "Failsafe")
   const lower = userMessage.toLowerCase();
   const distressKeywords = [
     'worried', 'worry', 'anxious', 'anxiety', 'sad', 'depressed', 'scared', 
@@ -268,13 +267,12 @@ async function handleGeneralResponse(userMessage) {
   ];
   const hasDistressKeyword = distressKeywords.some(word => lower.includes(word));
 
-  // 2. Concurrent Analysis
   let sarcasmResult = null;
-  let sentimentResult = { is_low_mood: hasDistressKeyword }; // Default to true if keyword found
+  let sentimentResult = { is_low_mood: hasDistressKeyword }; 
 
   if (!DISABLE_GEMINI) {
     const tasks = [analyzeSarcasm(userMessage)];
-    if (!hasDistressKeyword) tasks.push(analyzeSentiment(userMessage)); // Only ask AI if keyword didn't catch it
+    if (!hasDistressKeyword) tasks.push(analyzeSentiment(userMessage));
 
     try {
       const results = await Promise.all(tasks);
@@ -283,19 +281,17 @@ async function handleGeneralResponse(userMessage) {
     } catch (e) { console.error("Analysis failed", e); }
   }
 
-  // 3. Route to Gita (Priority 1)
   if (sentimentResult?.is_low_mood) {
     console.log(">> Low mood detected. Fetching Gita wisdom...");
-    const gitaResponse = await getGitaSupport(userMessage);
-    if (gitaResponse) {
+    const gitaData = await getGitaSupport(userMessage);
+    if (gitaData) {
       return `I sense you might be going through a tough moment. Here is some timeless wisdom from the Bhagavad Gita:\n\n` +
-             `**${gitaResponse.sanskrit}**\n` +
-             `*${gitaResponse.english_transliteration}*\n\n` +
-             `${gitaResponse.meaning}`;
+             `**${gitaData.sanskrit}**\n` +
+             `*${gitaData.english_transliteration}*\n\n` +
+             `${gitaData.meaning}`;
     }
   }
 
-  // 4. General Response (Priority 2)
   let instruction = `You are NodeMesh, a helpful AI assistant. Answer concisely.`;
   if (sarcasmResult?.is_sarcastic) {
     instruction += `\nCONTEXT: The user is being sarcastic (Intended: "${sarcasmResult.intended_meaning}"). Be witty/playful back.`;
@@ -316,10 +312,26 @@ app.post('/chat', async (req, res) => {
   try {
     console.log(`\nNew Request: "${message}"`);
     
-    // 1. Detect intent + activity
-    const { intent, location, topic, activity } = await detectIntent(message);
-    console.log(`Detected: ${intent} | Loc: ${location || 'N/A'} | Act: ${activity || 'N/A'}`);
+    // 1. Detect intent
+    // Note: 'location' might be detected here even if intent is 'general'
+    let { intent, location, topic, activity } = await detectIntent(message);
     
+    // --- CONTEXT MEMORY LOGIC ---
+    // If a new location was found, save it.
+    if (location && typeof location === 'string' && location.length > 0) {
+        lastContextLocation = location;
+        console.log(`📍 Context Updated: Location set to "${lastContextLocation}"`);
+    }
+
+    // If no location found in THIS message, but we need one, check memory.
+    if (!location && (intent === 'weather' || activity)) {
+        if (lastContextLocation) {
+            location = lastContextLocation;
+            console.log(`🧠 Context Recall: Using saved location "${location}"`);
+        }
+    }
+    // ----------------------------
+
     let reply;
 
     if (intent === 'weather') {
