@@ -37,8 +37,6 @@ app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) === -1) {
-      // For local dev ease, you can uncomment the next line temporarily:
-      // return callback(null, true);
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
       return callback(new Error(msg), false);
     }
@@ -49,8 +47,6 @@ app.use(cors({
 
 app.use(express.json());
 const http = axios.create({ timeout: 15000 });
-
-// --- 2. CORE HELPERS ---
 
 function extractJson(text) {
   if (!text) return null;
@@ -111,7 +107,6 @@ function fallbackIntentDetection(userMessage) {
 }
 
 async function detectIntent(userMessage) {
-  // Include 'activity' extraction for weather requests
   const prompt = `Classify the user message into: "weather", "news", or "general".
 - If "weather" (or asking about outdoor activities like fishing/surfing/walking), extract:
     - "location" (Default ambiguous cities like 'Delhi' to 'Delhi, India')
@@ -166,14 +161,18 @@ async function getGitaSupport(userMessage) {
 
 // --- 5. HANDLERS ---
 
-// Weather Handler with Activity Advice & Ambiguity Fix
 async function handleWeather(location, activity) {
   if (!WEATHER_API_KEY) return 'Weather service is not configured.';
-  if (!location) return 'Please provide a location.';
-
-  // Fix Ambiguity manually if AI missed it
+  
+  // 1. SANITIZE LOCATION (Fix for [object Object])
   let queryLocation = location;
-  if (location.trim().toLowerCase() === 'delhi') queryLocation = 'New Delhi, India';
+  if (typeof location === 'object' && location !== null) {
+    queryLocation = location.city || location.name || location.location || JSON.stringify(location);
+  }
+  queryLocation = String(queryLocation).trim();
+
+  if (queryLocation.toLowerCase() === 'delhi') queryLocation = 'New Delhi, India';
+  if (!queryLocation) return 'Please provide a valid location.';
 
   try {
     const { data } = await http.get('https://api.weatherapi.com/v1/forecast.json', {
@@ -182,14 +181,28 @@ async function handleWeather(location, activity) {
 
     const c = data.current;
     const loc = data.location;
-    
-    // Basic Report
-    let response = `**Weather for ${loc.name}, ${loc.country}**\n` +
-                   `🌡️ **Temp:** ${c.temp_c}°C (Feels like: ${c.feelslike_c}°C)\n` +
-                   `**Condition:** ${c.condition.text}\n` +
-                   `💨 **Wind:** ${c.wind_kph} km/h | 💧 **Humidity:** ${c.humidity}%`;
+    const astro = data.forecast?.forecastday?.[0]?.astro; // Fetch Astronomy data
 
-    // Activity Advice (Gemini)
+    // 2. PARSE TIME & DATE (Restored Feature)
+    let timeInfo = '';
+    if (loc.localtime) {
+        const localDate = new Date(loc.localtime);
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const dayName = dayNames[localDate.getDay()];
+        const dateStr = localDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+        const timeStr = localDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        timeInfo = `📅 ${dayName}, ${dateStr} 🕐 Local Time: ${timeStr}\n`;
+    }
+
+    // 3. BUILD FULL REPORT 
+    let response = `**Weather for ${loc.name}, ${loc.region}, ${loc.country}**\n${timeInfo}` +
+                   `**Condition:** ${c.condition.text}\n` +
+                   `🌡️ **Temp:** ${c.temp_c}°C (Feels like: ${c.feelslike_c}°C)\n` +
+                   `💧 **Humidity:** ${c.humidity}%\n` +
+                   `💨 **Wind:** ${c.wind_kph} km/h ${c.wind_dir}\n` +
+                   `🌅 **Sunrise:** ${astro?.sunrise || 'N/A'} | 🌇 **Sunset:** ${astro?.sunset || 'N/A'}`;
+
+    // 4. ACTIVITY ADVICE (Gemini)
     if (activity) {
         const advicePrompt = `
         User wants to know if it's good for: "${activity}".
@@ -205,6 +218,7 @@ async function handleWeather(location, activity) {
     return response;
 
   } catch (error) {
+    console.error(`Weather Error for "${queryLocation}":`, error.response?.data || error.message);
     return `I couldn't find weather information for "${queryLocation}".`;
   }
 }
@@ -299,13 +313,15 @@ app.post('/chat', async (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: 'Message required.' });
 
-  console.log(`Received: "${message}"`);
-
   try {
+    console.log(`\nNew Request: "${message}"`);
+    
+    // 1. Detect intent + activity
     const { intent, location, topic, activity } = await detectIntent(message);
     console.log(`Detected: ${intent} | Loc: ${location || 'N/A'} | Act: ${activity || 'N/A'}`);
-
+    
     let reply;
+
     if (intent === 'weather') {
       reply = await handleWeather(location, activity);
     } else if (intent === 'news') {
