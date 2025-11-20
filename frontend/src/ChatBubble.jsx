@@ -2,8 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import "./App.css";
 import axios from "axios";
 // IMPORTANT: We are now using these components instead of manual divs
-import ChatBubble from "./components/ChatBubble";
-import TypingIndicator from "./components/TypingIndicator";
+import ChatBubble from "./ChatBubble";
+import TypingIndicator from "./TypingIndicator";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
