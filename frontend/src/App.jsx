@@ -90,7 +90,7 @@ function App() {
           {chatHistory.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-6">
               <div className={`rounded-xl p-8 max-w-2xl shadow-md ${darkMode ? 'bg-gray-900' : 'bg-blue-50'}`}> 
-                <h2 className={`text-2xl font-bold mb-4 ${darkMode ? 'text-cyan-300' : 'text-blue-600'}`}>Welcome to Chat AI! 👋</h2>
+                <h2 className={`text-2xl font-bold mb-4 ${darkMode ? 'text-cyan-300' : 'text-blue-600'}`}>Welcome to NodeMesh AI! 👋</h2>
                 <p className={`mb-4 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}> 
                   I'm here to help you with anything you'd like to know.
                 </p>
