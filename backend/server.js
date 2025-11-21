@@ -297,7 +297,16 @@ async function handleGeneralResponse(userMessage, history = []) {
   }
 
   // 2. PRIORITY: General Assistant (With Memory)
-  let systemText = `You are NodeMesh, a helpful AI assistant. Answer concisely.`;
+  let systemText = "";
+  if (isCreativeMode) {
+      console.log(">> Creative Mode Triggered");
+      systemText = `You are NodeMesh, a creative and detailed AI assistant. 
+      The user has requested long-form content (essay, code, story). 
+      Provide a comprehensive, well-structured, and detailed response. 
+      Do not be concise. Expand on the topic.`;
+  } else {
+      systemText = `You are NodeMesh, a helpful AI assistant. Answer concisely and directly.`;
+  }
   if (sarcasmResult?.is_sarcastic) {
     systemText += `\nCONTEXT: The user is being sarcastic (Intended: "${sarcasmResult.intended_meaning}"). Be witty/playful back.`;
   }
