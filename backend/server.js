@@ -5,20 +5,19 @@ import axios from 'axios';
 
 dotenv.config();
 
-// --- 1. STARTUP CHECKS & CONFIG ---
-console.log('--- Checking Environment Variables on STARTUP ---');
+// --- 1. STARTUP CHECKS ---
+console.log('--- Checking Environment Variables ---');
 const apiKeyFromEnv = process.env.GEMINI_API_KEY;
 if (apiKeyFromEnv) {
   console.log(`GEMINI_API_KEY found. Ends with: ${apiKeyFromEnv.substring(apiKeyFromEnv.length - 4)}`);
 } else {
   console.error('CRITICAL: GEMINI_API_KEY is missing!');
 }
-console.log('--- End Startup Check ---');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Context Memory for Location (Weather)
+// Context Memory for Location (Persists until server restart)
 let lastContextLocation = null; 
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'; 
@@ -38,6 +37,7 @@ app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) === -1) {
+      // return callback(null, true); // Uncomment for dev
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
       return callback(new Error(msg), false);
     }
@@ -64,19 +64,19 @@ function extractJson(text) {
   }
 }
 
-// --- UPDATED CALL GEMINI (Supports History Arrays) ---
+// --- CALL GEMINI (HANDLES HISTORY CONTEXT) ---
 async function callGemini(input, model = GEMINI_MODEL) {
   if (!GEMINI_API_KEY) throw new Error('Missing GEMINI_API_KEY');
 
   const modelsToTry = [model, 'gemini-2.0-flash', 'gemini-1.5-flash'];
   let lastError;
 
-  // Check if input is a String (Single Prompt) or Array (Chat History)
+  // Determine payload: Array (History) or String (Single Prompt)
   let contents = [];
   if (Array.isArray(input)) {
-    contents = input; // Use full history
+    contents = input; 
   } else {
-    contents = [{ parts: [{ text: input }] }]; // Standard single prompt
+    contents = [{ parts: [{ text: input }] }]; 
   }
 
   for (const m of modelsToTry) {
@@ -262,9 +262,8 @@ async function handleNews(topic, originalMessage) {
     } catch (e) { return "Sorry, I couldn't fetch the news right now."; }
 }
 
-// --- UPDATED GENERAL HANDLER (Accepts History) ---
+// --- UPDATED GENERAL HANDLER WITH CONTEXT MEMORY ---
 async function handleGeneralResponse(userMessage, history = []) {
-  // 1. Failsafe: Keywords
   const lower = userMessage.toLowerCase();
   const distressKeywords = [
     'worried', 'worry', 'anxious', 'anxiety', 'sad', 'depressed', 'scared', 
@@ -272,7 +271,6 @@ async function handleGeneralResponse(userMessage, history = []) {
   ];
   const hasDistressKeyword = distressKeywords.some(word => lower.includes(word));
 
-  // 2. Concurrent Analysis
   let sarcasmResult = null;
   let sentimentResult = { is_low_mood: hasDistressKeyword };
 
@@ -287,9 +285,8 @@ async function handleGeneralResponse(userMessage, history = []) {
     } catch (e) { console.error("Analysis failed", e); }
   }
 
-  // 3. Priority 1: Gita
+  // 1. PRIORITY: Gita Support (Emotional Failsafe)
   if (sentimentResult?.is_low_mood) {
-    console.log(">> Low mood detected. Fetching Gita wisdom...");
     const gitaData = await getGitaSupport(userMessage);
     if (gitaData) {
       return `I sense you might be going through a tough moment. Here is some timeless wisdom from the Bhagavad Gita:\n\n` +
@@ -299,29 +296,29 @@ async function handleGeneralResponse(userMessage, history = []) {
     }
   }
 
-  // 4. Priority 2: General (With History Context)
+  // 2. PRIORITY: General Assistant (With Memory)
   let systemText = `You are NodeMesh, a helpful AI assistant. Answer concisely.`;
   if (sarcasmResult?.is_sarcastic) {
     systemText += `\nCONTEXT: The user is being sarcastic (Intended: "${sarcasmResult.intended_meaning}"). Be witty/playful back.`;
   }
 
-  // Construct Full Conversation for Memory
+  // Construct Full Conversation: [System -> History -> Current]
   const conversation = [
     { role: "user", parts: [{ text: `System Instruction: ${systemText}` }] },
     { role: "model", parts: [{ text: "Understood." }] },
-    ...history, // Inject past messages
+    ...history, // <--- Chat history from Frontend injected here
     { role: "user", parts: [{ text: userMessage }] }
   ];
 
   try {
-    return await callGemini(conversation); // Send array instead of string
+    return await callGemini(conversation); // Send Array to Gemini
   } catch (e) { return "I'm here if you need to talk."; }
 }
 
 // --- 6. ENDPOINTS ---
 
 app.post('/chat', async (req, res) => {
-  const { message, history } = req.body; // Extract history
+  const { message, history } = req.body; // <--- RECEIVES HISTORY FROM FRONTEND
   if (!message) return res.status(400).json({ error: 'Message required.' });
 
   try {
@@ -329,7 +326,7 @@ app.post('/chat', async (req, res) => {
     
     let { intent, location, topic, activity } = await detectIntent(message);
     
-    // Context Memory Logic (Location)
+    // Location Memory Update
     if (location && typeof location === 'string' && location.length > 0) {
         lastContextLocation = location;
     }
@@ -343,7 +340,7 @@ app.post('/chat', async (req, res) => {
     } else if (intent === 'news') {
       reply = await handleNews(topic, message);
     } else {
-      // Pass history to general handler
+      // Pass history to handleGeneralResponse
       reply = await handleGeneralResponse(message, history);
     }
 
