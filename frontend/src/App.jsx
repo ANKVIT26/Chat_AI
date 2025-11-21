@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import "./App.css";
 import axios from "axios";
-import ChatBubble from "./ChatBubble";
+import ChatBubble from "./ChatBubble"; 
 import TypingIndicator from "./TypingIndicator";
 
 // Use the VITE environment variable to get the backend URL
@@ -20,7 +20,6 @@ function App() {
   const [generatingAnswer, setGeneratingAnswer] = useState(false);
   const chatContainerRef = useRef(null);
 
-  // Auto-scroll logic
   useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
@@ -35,9 +34,10 @@ function App() {
     const currentQuestion = question;
     setQuestion(""); 
 
-    // --- NEW: Prepare History for Context Memory ---
-    // Take last 8 messages (approx 3 conversation turns)
-    const historyContext = chatHistory.slice(-8).map(msg => ({
+    // --- 1. CAPTURE HISTORY (The Missing Link) ---
+    // We take the last 10 messages so the AI has enough context
+    // to answer "refer to my 3rd message".
+    const historyContext = chatHistory.slice(-10).map(msg => ({
       role: msg.type === 'question' ? 'user' : 'model',
       parts: [{ text: msg.content }]
     }));
@@ -46,9 +46,10 @@ function App() {
     setChatHistory(prev => [...prev, { type: 'question', content: currentQuestion }]);
 
     try {
+      // --- 2. SEND HISTORY TO BACKEND ---
       const response = await axios.post(`${API_BASE_URL}/chat`, { 
         message: currentQuestion,
-        history: historyContext // <--- Sending memory to backend!
+        history: historyContext // <--- This line is CRITICAL for memory
       });
       
       const aiResponse = response.data.reply;
@@ -56,7 +57,7 @@ function App() {
       
     } catch (error) {
       console.error("Error:", error.response?.data || error.message);
-      const errorMessage = "Sorry - Something went wrong. Please try again!";
+      const errorMessage = "Sorry - Something went wrong connecting to the server.";
       setChatHistory(prev => [...prev, { type: 'answer', content: errorMessage }]);
     }
     setGeneratingAnswer(false);
@@ -72,14 +73,16 @@ function App() {
             <h1 className={`text-4xl font-bold transition-colors ${darkMode ? 'text-cyan-300 hover:text-cyan-400' : 'text-blue-500 hover:text-blue-600'}`}>Chat AI</h1>
           </a>
           <button
-            className={`ml-4 px-4 py-2 rounded-lg font-semibold shadow-md transition-all duration-200 focus:outline-none ${darkMode ? 'bg-gray-700 text-cyan-200 hover:bg-gray-600' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
+            className={`ml-4 px-4 py-2 rounded-lg font-semibold shadow-md transition-all duration-200 focus:outline-none darkmode-toggle ${darkMode ? 'bg-gray-700 text-cyan-200 hover:bg-gray-600' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
             onClick={() => setDarkMode((d) => !d)}
+            type="button"
+            aria-label="Toggle dark mode"
           >
             {darkMode ? '🌙 Dark' : '☀️ Light'}
           </button>
         </header>
 
-        {/* Chat Container */}
+        {/* Scrollable Chat Container */}
         <div 
           ref={chatContainerRef}
           className={`flex-1 overflow-y-auto mb-4 rounded-lg shadow-lg p-4 hide-scrollbar transition-colors duration-500 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}
@@ -89,19 +92,13 @@ function App() {
               <div className={`rounded-xl p-8 max-w-2xl shadow-md ${darkMode ? 'bg-gray-900' : 'bg-blue-50'}`}> 
                 <h2 className={`text-2xl font-bold mb-4 ${darkMode ? 'text-cyan-300' : 'text-blue-600'}`}>Welcome to Chat AI! 👋</h2>
                 <p className={`mb-4 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}> 
-                  I'm here to help. You can ask me about:
+                  I'm here to help you with anything you'd like to know.
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-                  {[
-                    { icon: "🌦️", text: "Weather & Activities" },
-                    { icon: "📰", text: "Latest News" },
-                    { icon: "🕉️", text: "Gita Wisdom" },
-                    { icon: "💡", text: "General Knowledge" }
-                  ].map((item, idx) => (
-                    <div key={idx} className={`p-4 rounded-lg shadow-sm transition-all duration-200 hover:scale-105 cursor-pointer flex items-center gap-2 ${darkMode ? 'bg-gray-800 text-cyan-200 hover:bg-gray-700' : 'bg-white text-blue-700 hover:bg-blue-50'}`}> 
-                      <span>{item.icon}</span> {item.text} 
-                    </div>
-                  ))}
+                  <div className={`p-4 rounded-lg shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-lg cursor-pointer ${darkMode ? 'bg-gray-800 text-cyan-200 hover:bg-gray-700' : 'bg-white text-blue-700 hover:bg-blue-50'}`}> <span className="text-blue-500">💡</span> General knowledge </div>
+                  <div className={`p-4 rounded-lg shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-lg cursor-pointer ${darkMode ? 'bg-gray-800 text-cyan-200 hover:bg-gray-700' : 'bg-white text-blue-700 hover:bg-blue-50'}`}> <span className="text-blue-500">🔧</span> Technical questions </div>
+                  <div className={`p-4 rounded-lg shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-lg cursor-pointer ${darkMode ? 'bg-gray-800 text-cyan-200 hover:bg-gray-700' : 'bg-white text-blue-700 hover:bg-blue-50'}`}> <span className="text-blue-500">📝</span> Writing assistance </div>
+                  <div className={`p-4 rounded-lg shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-lg cursor-pointer ${darkMode ? 'bg-gray-800 text-cyan-200 hover:bg-gray-700' : 'bg-white text-blue-700 hover:bg-blue-50'}`}> <span className="text-blue-500">🤔</span> Problem solving </div>
                 </div>
               </div>
             </div>
@@ -114,7 +111,6 @@ function App() {
                   isUser={chat.type === 'question'}
                 />
               ))}
-              
               {generatingAnswer && (
                 <div className="flex justify-start mt-2 animate-fade-in">
                   <TypingIndicator />
@@ -124,12 +120,12 @@ function App() {
           )}
         </div>
 
-        {/* Input Form */}
+        {/* Fixed Input Form */}
         <form onSubmit={generateAnswer} className={`rounded-lg shadow-lg p-4 transition-colors duration-500 ${darkMode ? 'bg-gray-900' : 'bg-white'}`}>
-          <div className="flex gap-2 items-end">
+          <div className="flex gap-2">
             <textarea
               required
-              className={`flex-1 border rounded-lg p-3 focus:outline-none focus:ring-2 resize-none transition-all duration-200 max-h-32 min-h-[50px] ${darkMode ? 'bg-gray-800 border-gray-700 text-cyan-100 focus:border-cyan-400 focus:ring-cyan-400 placeholder-gray-400' : 'border-gray-300 focus:border-blue-400 focus:ring-blue-400'}`}
+              className={`flex-1 border rounded p-3 focus:ring-2 resize-none transition-colors duration-200 ${darkMode ? 'bg-gray-800 border-gray-700 text-cyan-100 focus:border-cyan-400 focus:ring-cyan-400 placeholder-gray-400' : 'border-gray-300 focus:border-blue-400 focus:ring-blue-400'}`}
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               placeholder="Ask anything..."
@@ -143,7 +139,7 @@ function App() {
             ></textarea>
             <button
               type="submit"
-              className={`px-6 py-3 font-semibold rounded-md shadow-md transition-all duration-200 transform active:scale-95 focus:outline-none ${darkMode ? 'bg-cyan-700 text-white hover:bg-cyan-800' : 'bg-blue-500 text-white hover:bg-blue-600'} ${generatingAnswer ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`px-6 py-2 font-semibold rounded-md shadow-md transition-all duration-200 transform hover:scale-105 focus:outline-none send-btn ${darkMode ? 'bg-cyan-700 text-white hover:bg-cyan-800' : 'bg-blue-500 text-white hover:bg-blue-600'} ${generatingAnswer ? 'opacity-50 cursor-not-allowed' : ''}`}
               disabled={generatingAnswer}
             >
               Send
