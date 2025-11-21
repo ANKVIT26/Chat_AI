@@ -1,17 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import "./App.css";
 import axios from "axios";
-// IMPORTANT: We are now using these components instead of manual divs
-// Ensure these import paths are correct based on where you saved the files.
-// If they are in src/components, use "./components/ChatBubble".
-// If they are in src directly, use "./ChatBubble".
-import ChatBubble from "./ChatBubble"; 
+import ChatBubble from "./ChatBubble";
 import TypingIndicator from "./TypingIndicator";
 
+// Use the VITE environment variable to get the backend URL
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
 function App() {
-  // Dark mode state
   const [darkMode, setDarkMode] = useState(() => {
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
       return true;
@@ -24,7 +20,7 @@ function App() {
   const [generatingAnswer, setGeneratingAnswer] = useState(false);
   const chatContainerRef = useRef(null);
 
-  // Auto-scroll to bottom
+  // Auto-scroll logic
   useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
@@ -39,13 +35,20 @@ function App() {
     const currentQuestion = question;
     setQuestion(""); 
 
-    // Add user question to history
+    // --- NEW: Prepare History for Context Memory ---
+    // Take last 8 messages (approx 3 conversation turns)
+    const historyContext = chatHistory.slice(-8).map(msg => ({
+      role: msg.type === 'question' ? 'user' : 'model',
+      parts: [{ text: msg.content }]
+    }));
+
+    // Add user question to UI
     setChatHistory(prev => [...prev, { type: 'question', content: currentQuestion }]);
 
     try {
-      // Route everything to your backend
       const response = await axios.post(`${API_BASE_URL}/chat`, { 
-        message: currentQuestion 
+        message: currentQuestion,
+        history: historyContext // <--- Sending memory to backend!
       });
       
       const aiResponse = response.data.reply;
@@ -53,7 +56,7 @@ function App() {
       
     } catch (error) {
       console.error("Error:", error.response?.data || error.message);
-      const errorMessage = "Sorry - Something went wrong connecting to the server.";
+      const errorMessage = "Sorry - Something went wrong. Please try again!";
       setChatHistory(prev => [...prev, { type: 'answer', content: errorMessage }]);
     }
     setGeneratingAnswer(false);
@@ -66,14 +69,11 @@ function App() {
         {/* Header */}
         <header className="flex items-center justify-between py-4">
           <a href="https://github.com/ANKVIT26" target="_blank" rel="noopener noreferrer" className="block">
-            <h1 className={`text-4xl font-bold transition-colors ${darkMode ? 'text-cyan-300 hover:text-cyan-400' : 'text-blue-500 hover:text-blue-600'}`}>
-              Chat AI
-            </h1>
+            <h1 className={`text-4xl font-bold transition-colors ${darkMode ? 'text-cyan-300 hover:text-cyan-400' : 'text-blue-500 hover:text-blue-600'}`}>Chat AI</h1>
           </a>
           <button
             className={`ml-4 px-4 py-2 rounded-lg font-semibold shadow-md transition-all duration-200 focus:outline-none ${darkMode ? 'bg-gray-700 text-cyan-200 hover:bg-gray-600' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
             onClick={() => setDarkMode((d) => !d)}
-            aria-label="Toggle dark mode"
           >
             {darkMode ? '🌙 Dark' : '☀️ Light'}
           </button>
@@ -82,11 +82,11 @@ function App() {
         {/* Chat Container */}
         <div 
           ref={chatContainerRef}
-          className={`flex-1 overflow-y-auto mb-4 rounded-lg shadow-lg p-4 hide-scrollbar transition-colors duration-500 ${darkMode ? 'bg-gray-800/90' : 'bg-white/80 backdrop-blur-sm'}`}
+          className={`flex-1 overflow-y-auto mb-4 rounded-lg shadow-lg p-4 hide-scrollbar transition-colors duration-500 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}
         >
           {chatHistory.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center p-6 animate-fade-in">
-              <div className={`rounded-xl p-8 max-w-2xl shadow-md ${darkMode ? 'bg-gray-900/60' : 'bg-blue-50/60'}`}> 
+            <div className="h-full flex flex-col items-center justify-center text-center p-6">
+              <div className={`rounded-xl p-8 max-w-2xl shadow-md ${darkMode ? 'bg-gray-900' : 'bg-blue-50'}`}> 
                 <h2 className={`text-2xl font-bold mb-4 ${darkMode ? 'text-cyan-300' : 'text-blue-600'}`}>Welcome to Chat AI! 👋</h2>
                 <p className={`mb-4 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}> 
                   I'm here to help. You can ask me about:
@@ -106,7 +106,6 @@ function App() {
               </div>
             </div>
           ) : (
-            /* --- FIX: Using ChatBubble Component Here --- */
             <div className="flex flex-col space-y-2">
               {chatHistory.map((chat, index) => (
                 <ChatBubble 
@@ -116,7 +115,6 @@ function App() {
                 />
               ))}
               
-              {/* --- FIX: Using TypingIndicator Here --- */ }
               {generatingAnswer && (
                 <div className="flex justify-start mt-2 animate-fade-in">
                   <TypingIndicator />
