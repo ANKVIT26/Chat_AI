@@ -5,9 +5,9 @@ ChatBot is a responsive AI assistant built using **React + Vite** on the fronten
 
 ## 🚀 Features
 
-- **Intent-Based Query Handling**  
-  Automatically detects user intent across:
-  - `general` → Gemini Flash 2.0
+- **Sarcasm,Intent-Based Query Handling**  
+  Automatically detects user intent or sarcasm across:
+  - `general`/`sarcasm` → Gemini Flash 2.0
   - `weather`, `rain`, `alert` → WeatherMap API
   - `news` → NewsAPI
 
