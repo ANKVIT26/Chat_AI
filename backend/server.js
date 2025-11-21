@@ -18,11 +18,9 @@ console.log('--- End Startup Check ---');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// --- MEMORY STORAGE (The Fix) ---
-// This variable will remember the location across requests
+// Context Memory for Location (Weather)
 let lastContextLocation = null; 
 
-// Model Config
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'; 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
@@ -30,7 +28,6 @@ const WEATHER_API_KEY = process.env.WEATHER_API_KEY;
 const NEWS_API_KEY = process.env.NEWS_API_KEY;
 const DISABLE_GEMINI = (process.env.DISABLE_GEMINI || 'false').toLowerCase() === 'true';
 
-// Middleware
 const allowedOrigins = [
   'https://nodemesh-ai-frontend.onrender.com', 
   'http://localhost:5173',
@@ -67,17 +64,26 @@ function extractJson(text) {
   }
 }
 
-async function callGemini(prompt, model = GEMINI_MODEL) {
+// --- UPDATED CALL GEMINI (Supports History Arrays) ---
+async function callGemini(input, model = GEMINI_MODEL) {
   if (!GEMINI_API_KEY) throw new Error('Missing GEMINI_API_KEY');
 
   const modelsToTry = [model, 'gemini-2.0-flash', 'gemini-1.5-flash'];
   let lastError;
 
+  // Check if input is a String (Single Prompt) or Array (Chat History)
+  let contents = [];
+  if (Array.isArray(input)) {
+    contents = input; // Use full history
+  } else {
+    contents = [{ parts: [{ text: input }] }]; // Standard single prompt
+  }
+
   for (const m of modelsToTry) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${GEMINI_API_KEY}`;
     try {
       const response = await http.post(url, {
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: contents,
         safetySettings: [
             { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
             { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
@@ -93,7 +99,7 @@ async function callGemini(prompt, model = GEMINI_MODEL) {
     } catch (error) {
       lastError = error;
       const status = error.response?.status;
-      if (status !== 429 && status !== 503) break; // Don't retry on permanent errors
+      if (status !== 429 && status !== 503) break; 
       console.warn(`Model ${m} failed (${status}). Retrying fallback...`);
     }
   }
@@ -113,11 +119,9 @@ function fallbackIntentDetection(userMessage) {
 }
 
 async function detectIntent(userMessage) {
-  // UPDATE: Asked Gemini to ALWAYS extract location if present, regardless of intent
   const prompt = `Classify the user message into: "weather", "news", or "general".
-- Extract "location" if ANY city or country is mentioned in the message, regardless of the intent.
-    (Default ambiguous cities like 'Delhi' to 'Delhi, India').
-- If user asks about outdoor activities (fishing/surfing/walking/stroll), set intent to "weather" and extract "activity".
+- Extract "location" if ANY city or country is mentioned (Default ambiguous to India).
+- If user asks about outdoor activities, set intent to "weather" and extract "activity".
 - If "news", extract "topic".
 - Respond ONLY with JSON: {"intent": "...", "location": "...", "topic": "...", "activity": "..."}
 User: "${userMessage}"`;
@@ -129,12 +133,12 @@ User: "${userMessage}"`;
         if (parsed && parsed.intent) return parsed;
     }
   } catch (error) {
-    console.error('Gemini intent detection failed:', error.message);
+    console.error('Intent detection failed:', error.message);
   }
   return fallbackIntentDetection(userMessage);
 }
 
-// --- 4. ANALYZERS (SENTIMENT & SARCASM) ---
+// --- 4. ANALYZERS ---
 
 async function analyzeSarcasm(userMessage) {
   const prompt = `Analyze for sarcasm. JSON: {"is_sarcastic": boolean, "intended_meaning": "string"}. Message: "${userMessage}"`;
@@ -171,7 +175,6 @@ async function getGitaSupport(userMessage) {
 async function handleWeather(location, activity) {
   if (!WEATHER_API_KEY) return 'Weather service is not configured.';
   
-  // Sanitize Location
   let queryLocation = location;
   if (typeof location === 'object' && location !== null) {
     queryLocation = location.city || location.name || location.location || JSON.stringify(location);
@@ -259,7 +262,9 @@ async function handleNews(topic, originalMessage) {
     } catch (e) { return "Sorry, I couldn't fetch the news right now."; }
 }
 
-async function handleGeneralResponse(userMessage) {
+// --- UPDATED GENERAL HANDLER (Accepts History) ---
+async function handleGeneralResponse(userMessage, history = []) {
+  // 1. Failsafe: Keywords
   const lower = userMessage.toLowerCase();
   const distressKeywords = [
     'worried', 'worry', 'anxious', 'anxiety', 'sad', 'depressed', 'scared', 
@@ -267,8 +272,9 @@ async function handleGeneralResponse(userMessage) {
   ];
   const hasDistressKeyword = distressKeywords.some(word => lower.includes(word));
 
+  // 2. Concurrent Analysis
   let sarcasmResult = null;
-  let sentimentResult = { is_low_mood: hasDistressKeyword }; 
+  let sentimentResult = { is_low_mood: hasDistressKeyword };
 
   if (!DISABLE_GEMINI) {
     const tasks = [analyzeSarcasm(userMessage)];
@@ -281,6 +287,7 @@ async function handleGeneralResponse(userMessage) {
     } catch (e) { console.error("Analysis failed", e); }
   }
 
+  // 3. Priority 1: Gita
   if (sentimentResult?.is_low_mood) {
     console.log(">> Low mood detected. Fetching Gita wisdom...");
     const gitaData = await getGitaSupport(userMessage);
@@ -292,54 +299,52 @@ async function handleGeneralResponse(userMessage) {
     }
   }
 
-  let instruction = `You are NodeMesh, a helpful AI assistant. Answer concisely.`;
+  // 4. Priority 2: General (With History Context)
+  let systemText = `You are NodeMesh, a helpful AI assistant. Answer concisely.`;
   if (sarcasmResult?.is_sarcastic) {
-    instruction += `\nCONTEXT: The user is being sarcastic (Intended: "${sarcasmResult.intended_meaning}"). Be witty/playful back.`;
+    systemText += `\nCONTEXT: The user is being sarcastic (Intended: "${sarcasmResult.intended_meaning}"). Be witty/playful back.`;
   }
 
+  // Construct Full Conversation for Memory
+  const conversation = [
+    { role: "user", parts: [{ text: `System Instruction: ${systemText}` }] },
+    { role: "model", parts: [{ text: "Understood." }] },
+    ...history, // Inject past messages
+    { role: "user", parts: [{ text: userMessage }] }
+  ];
+
   try {
-    const raw = await callGemini(`${instruction}\nUser: "${userMessage}"`);
-    return raw.trim();
+    return await callGemini(conversation); // Send array instead of string
   } catch (e) { return "I'm here if you need to talk."; }
 }
 
 // --- 6. ENDPOINTS ---
 
 app.post('/chat', async (req, res) => {
-  const { message } = req.body;
+  const { message, history } = req.body; // Extract history
   if (!message) return res.status(400).json({ error: 'Message required.' });
 
   try {
     console.log(`\nNew Request: "${message}"`);
     
-    // 1. Detect intent
-    // Note: 'location' might be detected here even if intent is 'general'
     let { intent, location, topic, activity } = await detectIntent(message);
     
-    // --- CONTEXT MEMORY LOGIC ---
-    // If a new location was found, save it.
+    // Context Memory Logic (Location)
     if (location && typeof location === 'string' && location.length > 0) {
         lastContextLocation = location;
-        console.log(`📍 Context Updated: Location set to "${lastContextLocation}"`);
     }
-
-    // If no location found in THIS message, but we need one, check memory.
     if (!location && (intent === 'weather' || activity)) {
-        if (lastContextLocation) {
-            location = lastContextLocation;
-            console.log(`🧠 Context Recall: Using saved location "${location}"`);
-        }
+        if (lastContextLocation) location = lastContextLocation;
     }
-    // ----------------------------
 
     let reply;
-
     if (intent === 'weather') {
       reply = await handleWeather(location, activity);
     } else if (intent === 'news') {
       reply = await handleNews(topic, message);
     } else {
-      reply = await handleGeneralResponse(message);
+      // Pass history to general handler
+      reply = await handleGeneralResponse(message, history);
     }
 
     res.json({ reply, intent, location, topic });
