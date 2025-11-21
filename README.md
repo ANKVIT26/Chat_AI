@@ -1,6 +1,6 @@
 # 🤖 ChatBot — AI-Powered Intent-Based Assistant
 
-ChatBot is a responsive AI assistant built using **React + Vite** on the frontend and a modular **Node.js/Express.js backend**. It intelligently routes user queries based on intent—leveraging **Gemini Flash 2.0**, **WeatherMap**, and **NewsAPI** to deliver accurate, real-time responses.
+ChatBot is a responsive AI assistant built using **React + Vite** on the frontend and a modular **Node.js/Express.js backend**. It intelligently routes user queries based on intent—leveraging **Gemini Flash 2.0**, **WeatherAPI**, and **NewsAPI** to deliver accurate, real-time responses.
 
 
 ## 🚀 Features
