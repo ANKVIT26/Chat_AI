@@ -37,7 +37,7 @@ function App() {
     // --- 1. CAPTURE HISTORY (The Missing Link) ---
     // We take the last 10 messages so the AI has enough context
     // to answer "refer to my 3rd message".
-    const historyContext = chatHistory.slice(-10).map(msg => ({
+    const historyContext = chatHistory.slice(-6).map(msg => ({
       role: msg.type === 'question' ? 'user' : 'model',
       parts: [{ text: msg.content }]
     }));
